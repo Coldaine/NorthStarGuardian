@@ -101,7 +101,11 @@ def _build_mock_client(principle_ids: list[str], verdict: str = "aligned") -> Ma
         "[]",
         chronicle_prose,
     ]
-    # assign_saga still uses client.messages.create() directly
+    # assign_saga (chronicle.py:284) still calls client.messages.create() directly
+    # on the old Anthropic SDK interface. This MagicMock bridge stays until the
+    # LLM provider migration (REMEDIATION_PLAN.md: CRITICAL ISSUE) abstracts that
+    # boundary behind an LLMClient protocol. Do NOT replicate this pattern in new
+    # tests — use FakeLLMClient from conftest.py instead.
     saga_block = MagicMock()
     saga_block.text = "CREATE: New Saga"
     saga_resp = MagicMock()

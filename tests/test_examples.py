@@ -1,44 +1,22 @@
-"""Tests for US-002: example artifacts under examples/.
-
-Asserts that:
-  - examples/sample-constitution.md parses cleanly via parse_constitution_markdown,
-    has exactly 5 principles, 3 anti-patterns, and a non-empty identity statement.
-  - examples/sample-dashboard.html exists, contains the Mermaid CDN URL, and
-    contains text for each of the four dashboard section headings.
-
-Side-effect: generates examples/sample-dashboard.html if it does not already
-exist, by seeding a FakeStore with representative sagas, journal entries, and
-drift events, then calling render_dashboard. Generation is deterministic and
-idempotent — the file is only written when absent.
-"""
+"""Asserts the committed examples/ artifacts are valid and (re)generates
+sample-dashboard.html deterministically when missing."""
 
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from guardian.constitution import parse_constitution_markdown
 from guardian.dashboard import render_dashboard
-from guardian.models import (
-    AntiPattern,
-    Constitution,
-    Principle,
-)
-
-# ---------------------------------------------------------------------------
-# Paths
-# ---------------------------------------------------------------------------
+from guardian.models import AntiPattern, Constitution, Principle
 
 _EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 _CONSTITUTION_FILE = _EXAMPLES_DIR / "sample-constitution.md"
-_JOURNAL_FILE = _EXAMPLES_DIR / "sample-journal-entry.md"
 _DASHBOARD_FILE = _EXAMPLES_DIR / "sample-dashboard.html"
-
-# ---------------------------------------------------------------------------
-# Minimal FakeStore (no git, no filesystem side-effects during generation)
-# ---------------------------------------------------------------------------
 
 
 class _FakeStore:
@@ -70,15 +48,10 @@ class _FakeStore:
         return sorted(self._files.keys())
 
 
-# ---------------------------------------------------------------------------
-# Seeder — builds deterministic chronicle state for the dashboard
-# ---------------------------------------------------------------------------
-
 _DT_BASE = datetime(2026, 2, 1, 10, 0, 0, tzinfo=UTC)
 
 
 def _dt(days_offset: int, hour: int = 10) -> datetime:
-    from datetime import timedelta
     return _DT_BASE + timedelta(days=days_offset, hours=hour - 10)
 
 
@@ -293,90 +266,42 @@ def _seed_store() -> tuple[_FakeStore, Constitution]:
     return store, constitution
 
 
-# ---------------------------------------------------------------------------
-# Dashboard generation helper (idempotent)
-# ---------------------------------------------------------------------------
+@pytest.fixture(scope="module")
+def constitution() -> Constitution:
+    return parse_constitution_markdown(_CONSTITUTION_FILE.read_text(encoding="utf-8"))
 
 
-def _ensure_dashboard_html() -> None:
-    """Generate examples/sample-dashboard.html if it does not already exist."""
-    if _DASHBOARD_FILE.exists():
-        return
-
-    store, constitution = _seed_store()
-    html = render_dashboard(store, constitution)
-
-    # render_dashboard writes to store["dashboard.html"]; we want the file on disk.
-    _EXAMPLES_DIR.mkdir(parents=True, exist_ok=True)
-    _DASHBOARD_FILE.write_text(html, encoding="utf-8")
+@pytest.fixture(scope="module")
+def dashboard_html() -> str:
+    if not _DASHBOARD_FILE.exists():
+        store, c = _seed_store()
+        _EXAMPLES_DIR.mkdir(parents=True, exist_ok=True)
+        _DASHBOARD_FILE.write_text(render_dashboard(store, c), encoding="utf-8")
+    return _DASHBOARD_FILE.read_text(encoding="utf-8")
 
 
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
-# The dashboard section headings as they appear in dashboard.html.j2
-_DASHBOARD_HEADINGS = [
-    "Saga Timeline",
-    "Branch Topology",
-    "Strategic Quadrant",
-    "Principle Map",
-]
-
-_MERMAID_CDN = "cdn.jsdelivr.net"
+def test_constitution_file_exists() -> None:
+    assert _CONSTITUTION_FILE.exists()
 
 
-class TestSampleConstitution:
-    """Assertions for examples/sample-constitution.md."""
-
-    def test_file_exists(self) -> None:
-        assert _CONSTITUTION_FILE.exists(), f"{_CONSTITUTION_FILE} does not exist"
-
-    def test_parses_without_error(self) -> None:
-        text = _CONSTITUTION_FILE.read_text(encoding="utf-8")
-        # Must not raise
-        constitution = parse_constitution_markdown(text)
-        assert constitution is not None
-
-    def test_has_exactly_five_principles(self) -> None:
-        text = _CONSTITUTION_FILE.read_text(encoding="utf-8")
-        constitution = parse_constitution_markdown(text)
-        assert len(constitution.principles) == 5, (
-            f"Expected 5 principles, got {len(constitution.principles)}"
-        )
-
-    def test_has_three_anti_patterns(self) -> None:
-        text = _CONSTITUTION_FILE.read_text(encoding="utf-8")
-        constitution = parse_constitution_markdown(text)
-        assert len(constitution.anti_patterns) == 3, (
-            f"Expected 3 anti-patterns, got {len(constitution.anti_patterns)}"
-        )
-
-    def test_non_empty_identity_statement(self) -> None:
-        text = _CONSTITUTION_FILE.read_text(encoding="utf-8")
-        constitution = parse_constitution_markdown(text)
-        assert constitution.identity_statement.strip(), "identity_statement must not be empty"
+def test_constitution_has_five_principles(constitution: Constitution) -> None:
+    assert len(constitution.principles) == 5
 
 
-class TestSampleDashboard:
-    """Assertions for examples/sample-dashboard.html."""
+def test_constitution_has_three_anti_patterns(constitution: Constitution) -> None:
+    assert len(constitution.anti_patterns) == 3
 
-    def setup_method(self) -> None:
-        """Ensure the dashboard HTML exists before each test runs."""
-        _ensure_dashboard_html()
 
-    def test_file_exists(self) -> None:
-        assert _DASHBOARD_FILE.exists(), f"{_DASHBOARD_FILE} does not exist"
+def test_constitution_has_identity_statement(constitution: Constitution) -> None:
+    assert constitution.identity_statement.strip()
 
-    def test_contains_mermaid_cdn(self) -> None:
-        html = _DASHBOARD_FILE.read_text(encoding="utf-8")
-        assert _MERMAID_CDN in html, (
-            f"Mermaid CDN URL ({_MERMAID_CDN!r}) not found in sample-dashboard.html"
-        )
 
-    def test_contains_all_section_headings(self) -> None:
-        html = _DASHBOARD_FILE.read_text(encoding="utf-8")
-        for heading in _DASHBOARD_HEADINGS:
-            assert heading in html, (
-                f"Section heading {heading!r} not found in sample-dashboard.html"
-            )
+def test_dashboard_contains_mermaid_cdn(dashboard_html: str) -> None:
+    assert "cdn.jsdelivr.net" in dashboard_html
+
+
+@pytest.mark.parametrize(
+    "heading", ["Saga Timeline", "Branch Topology", "Strategic Quadrant", "Principle Map"],
+)
+def test_dashboard_has_section(dashboard_html: str, heading: str) -> None:
+    assert heading in dashboard_html, f"missing section {heading!r}"

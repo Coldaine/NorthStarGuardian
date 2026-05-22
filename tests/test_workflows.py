@@ -1,9 +1,4 @@
-"""US-004: Structural validation for all three GitHub Actions workflow files.
-
-PyYAML 1.1 parses bare `on:` as the boolean True. This module handles that
-by trying both the string key "on" and the boolean key True when locating the
-trigger declaration.
-"""
+"""Structural validation for the three GitHub Actions workflow files."""
 
 from __future__ import annotations
 
@@ -32,7 +27,7 @@ def _load(filename: str) -> dict[str, Any]:
 
 
 def _get_trigger(data: dict[str, Any]) -> Any:
-    """Return the trigger value, accepting either key 'on' or key True."""
+    # PyYAML 1.1 parses bare `on:` as the boolean True; accept either form.
     if "on" in data:
         return data["on"]
     if True in data:

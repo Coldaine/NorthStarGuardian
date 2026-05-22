@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ project_name }} — Guardian Dashboard</title>
+  <style>
+    /* ------------------------------------------------------------------ */
+    /* Base reset & tokens                                                  */
+    /* ------------------------------------------------------------------ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #f8f9fa;
+      --surface:     #ffffff;
+      --border:      #dee2e6;
+      --text:        #212529;
+      --text-muted:  #6c757d;
+      --accent:      #0d6efd;
+      --drift:       #dc3545;
+      --aligned:     #198754;
+      --ambiguous:   #fd7e14;
+      --radius:      6px;
+      --shadow:      0 1px 3px rgba(0,0,0,.08);
+      --font-sans:   system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font-mono:   ui-monospace, "SFMono-Regular", Consolas, monospace;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:         #121416;
+        --surface:    #1e2124;
+        --border:     #343a40;
+        --text:       #e9ecef;
+        --text-muted: #868e96;
+        --accent:     #4dabf7;
+        --drift:      #ff6b6b;
+        --aligned:    #51cf66;
+        --ambiguous:  #ffa94d;
+        --shadow:     0 1px 3px rgba(0,0,0,.4);
+      }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Layout                                                               */
+    /* ------------------------------------------------------------------ */
+    body {
+      font-family: var(--font-sans);
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--text);
+      background: var(--bg);
+    }
+
+    .site-header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 1.25rem 2rem;
+    }
+
+    .site-header h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: -.02em;
+    }
+
+    .site-header .identity {
+      color: var(--text-muted);
+      font-size: .9rem;
+      margin-top: .25rem;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 280px;
+      gap: 0;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { order: -1; }
+    }
+
+    .main-content {
+      padding: 1.5rem 2rem;
+      min-width: 0;
+    }
+
+    .sidebar {
+      padding: 1.5rem 1rem;
+      border-left: 1px solid var(--border);
+      background: var(--surface);
+      min-height: calc(100vh - 80px);
+    }
+
+    @media (max-width: 900px) {
+      .sidebar {
+        border-left: none;
+        border-bottom: 1px solid var(--border);
+        min-height: auto;
+      }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Cards / sections                                                     */
+    /* ------------------------------------------------------------------ */
+    .chart-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 1.25rem;
+      overflow: hidden;
+    }
+
+    .chart-section h2 {
+      font-size: .95rem;
+      font-weight: 600;
+      padding: .75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+      letter-spacing: .01em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .chart-body {
+      padding: 1rem;
+      overflow-x: auto;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Sidebar: principle list                                              */
+    /* ------------------------------------------------------------------ */
+    .sidebar h2 {
+      font-size: .8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--text-muted);
+      margin-bottom: .75rem;
+    }
+
+    .principle-list {
+      list-style: none;
+    }
+
+    .principle-list li {
+      padding: .5rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: .85rem;
+      line-height: 1.4;
+    }
+
+    .principle-list li:last-child { border-bottom: none; }
+
+    .principle-rank {
+      display: inline-block;
+      width: 1.4em;
+      height: 1.4em;
+      line-height: 1.4em;
+      text-align: center;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      font-size: .7rem;
+      font-weight: 700;
+      margin-right: .4rem;
+      flex-shrink: 0;
+    }
+
+    .principle-item {
+      display: flex;
+      align-items: flex-start;
+      gap: .3rem;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Footer                                                               */
+    /* ------------------------------------------------------------------ */
+    .site-footer {
+      text-align: center;
+      padding: 1rem 2rem;
+      font-size: .8rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Mermaid overrides (force transparent background in dark mode)        */
+    /* ------------------------------------------------------------------ */
+    .mermaid { text-align: center; }
+    .mermaid svg { max-width: 100%; height: auto; }
+  </style>
+</head>
+<body>
+
+<header class="site-header">
+  <h1>{{ project_name }} — Guardian Dashboard</h1>
+  <p class="identity">{{ identity_statement }}</p>
+</header>
+
+<div class="layout">
+  <main class="main-content">
+
+    <!-- Saga Timeline -->
+    <section class="chart-section">
+      <h2>Saga Timeline</h2>
+      <div class="chart-body">
+        <div class="mermaid">
+{{ gantt_src }}
+        </div>
+      </div>
+    </section>
+
+    <!-- Branch Topology -->
+    <section class="chart-section">
+      <h2>Branch Topology</h2>
+      <div class="chart-body">
+        <div class="mermaid">
+{{ gitgraph_src }}
+        </div>
+      </div>
+    </section>
+
+    <!-- Strategic Quadrant -->
+    <section class="chart-section">
+      <h2>Strategic Quadrant</h2>
+      <div class="chart-body">
+        <div class="mermaid">
+{{ quadrant_src }}
+        </div>
+      </div>
+    </section>
+
+    <!-- Principle Map -->
+    <section class="chart-section">
+      <h2>Principle Map</h2>
+      <div class="chart-body">
+        <div class="mermaid">
+{{ mindmap_src }}
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <aside class="sidebar">
+    <h2>Principles</h2>
+    <ul class="principle-list">
+      {% for p in principles %}
+      <li>
+        <div class="principle-item">
+          <span class="principle-rank">{{ p.rank }}</span>
+          <span>{{ p.text }}</span>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </aside>
+</div>
+
+<footer class="site-footer">
+  Generated {{ generated_at }} by NorthStarGuardian
+</footer>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
+  });
+</script>
+
+</body>
+</html>

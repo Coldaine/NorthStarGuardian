@@ -1,0 +1,63 @@
+---
+version: 1
+project_name: {{ project_name }}
+identity_statement: {{ identity_statement }}
+approved_architecture: |
+  {{ approved_architecture | indent(2) }}
+created_at: {{ created_at }}
+principles:
+{% for p in principles %}
+  - id: p{{ loop.index }}
+    rank: {{ loop.index }}
+    text: {{ p if p is string else p.text }}
+{% endfor %}
+anti_patterns:
+{% for a in anti_patterns %}
+  - id: ap{{ loop.index }}
+    description: {{ a if a is string else a.description }}
+{% if a is mapping and a.example %}
+    example: {{ a.example }}
+{% endif %}
+{% if a is mapping and a.detect %}
+    detect: {{ a.detect }}
+{% endif %}
+{% endfor %}
+---
+
+# {{ project_name }} — Constitution
+
+## Identity
+
+{{ identity_statement }}
+
+## Principles
+
+{% for p in principles %}
+### {{ loop.index }}. {{ p if p is string else p.text }}
+
+{% if p is mapping and p.rationale %}
+{{ p.rationale }}
+
+{% endif %}
+{% endfor %}
+
+## Approved Architecture
+
+{{ approved_architecture }}
+
+{% if anti_patterns %}
+## Anti-Patterns
+
+{% for a in anti_patterns %}
+### AP-{{ loop.index }}: {{ a if a is string else a.description }}
+
+{% if a is mapping and a.example %}
+*Example:* {{ a.example }}
+
+{% endif %}
+{% if a is mapping and a.detect %}
+*Detect:* `{{ a.detect }}`
+
+{% endif %}
+{% endfor %}
+{% endif %}

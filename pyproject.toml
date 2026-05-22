@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "northstar-guardian"
+version = "0.1.0"
+description = "Advisory GitHub Action that watches repositories drift from their declared identity."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Patrick MacLyman", email = "pmaclyman@gmail.com" }]
+dependencies = [
+    "anthropic>=0.40.0",
+    "PyGithub>=2.3.0",
+    "click>=8.1.0",
+    "jinja2>=3.1.0",
+    "pydantic>=2.7.0",
+    "python-dateutil>=2.9.0",
+    "unidiff>=0.7.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.5.0",
+]
+
+[project.scripts]
+guardian = "guardian.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["guardian*"]
+
+[tool.setuptools.package-data]
+guardian = [
+    "templates/*.j2",
+    "templates/*.md",
+    "templates/*.html",
+    "templates/prompts/*.j2",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"

@@ -1,0 +1,109 @@
+# NorthStarGuardian — Consumer Workflow Example
+#
+# Copy this file into your own repository at:
+#   .github/workflows/guardian.yml
+#
+# Prerequisites:
+#   1. Add ANTHROPIC_API_KEY to your repository secrets
+#      (Settings → Secrets and variables → Actions → New repository secret).
+#   2. Ensure GitHub Actions has permission to write pull-request comments
+#      and push to branches (Settings → Actions → General → Workflow permissions
+#      → "Read and write permissions").
+#   3. On first use, comment `/init-guardian` on any PR (or run
+#      `guardian init-local` in a local clone) to create the Constitution.
+#
+# What the Guardian does:
+#   - On every PR open/update: runs an interview comparing the diff against
+#     your project Constitution and posts an advisory comment.
+#   - On slash commands in PR comments: dispatches /init-guardian, /re-anchor,
+#     /amend, /chronicle, /dashboard, /status.
+#   - Daily: sweeps expired variance debt timers and opens a tracking issue.
+#
+# The Guardian NEVER modifies your source code or blocks merges.
+# All state (constitution, journal, dashboard) lives on a separate
+# `guardian-memory` orphan branch — invisible to your normal git history.
+
+name: Guardian
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+
+# Required permissions for posting comments and writing to the memory branch.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # PR Interview — triggered on every PR open/update
+  # ---------------------------------------------------------------------------
+  interview:
+    name: PR Interview
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history is needed for the guardian-memory worktree.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Install NorthStarGuardian from PyPI once published.
+      # Until then, install directly from GitHub:
+      #   pip install git+https://github.com/YOUR_ORG/NorthStarGuardian.git
+      - name: Install Guardian
+        run: pip install northstar-guardian
+
+      - name: Configure git identity
+        run: |
+          git config user.name "NorthStarGuardian"
+          git config user.email "guardian@github-actions.bot"
+
+      - name: Interview PR
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: guardian interview
+
+  # ---------------------------------------------------------------------------
+  # Slash Commands — triggered when a PR comment starts with /
+  # ---------------------------------------------------------------------------
+  command:
+    name: Slash Command
+    if: >-
+      github.event_name == 'issue_comment' &&
+      startsWith(github.event.comment.body, '/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Guardian
+        run: pip install northstar-guardian
+
+      - name: Configure git identity
+        run: |
+          git config user.name "NorthStarGuardian"
+          git config user.email "guardian@github-actions.bot"
+
+      - name: Dispatch slash command
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: guardian command

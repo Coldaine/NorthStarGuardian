@@ -143,7 +143,7 @@ def cli() -> None:
 def interview(event_path: str | None, repo_root: str | None) -> None:
     """Run the full PR interview cycle (triggered by pull_request events)."""
     # Lazy imports of domain modules so tests can mock them before importing cli.
-    from guardian import analyze, chronicle, dashboard
+    from guardian import analyze, chronicle, dashboard, governance
 
     root = Path(repo_root or ".").resolve()
     store = MemoryStore(root)
@@ -198,6 +198,26 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
     )
     chronicle.update_saga(store, saga, report.pr_number)
     report = report.model_copy(update={"saga_id": saga.id})
+
+    from guardian.models import DriftSeverity, Verdict
+
+    for pe in report.principle_evaluations:
+        if pe.relevant and pe.verdict == Verdict.DRIFT:
+            governance.log_drift(
+                store,
+                pr_number=report.pr_number,
+                principle_id=pe.principle_id,
+                severity=DriftSeverity.MEDIUM,
+                details=pe.reasoning or f"Drift detected for principle {pe.principle_id}",
+            )
+
+    for vt in report.intent.declared_variances:
+        governance.grant_variance(
+            store,
+            tag=vt,
+            pr_number=report.pr_number,
+            config=config,
+        )
 
     # 6. Write journal entry.
     chronicle.write_journal_entry(store, report, saga)

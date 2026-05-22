@@ -95,6 +95,7 @@ class MemoryStore:
     def _attach_worktree(self) -> None:
         """Fetch the remote branch and add a worktree for it."""
         # Fetch the branch so we have it locally.
+        # Best-effort fetch; the local branch may already be current.
         with suppress(subprocess.CalledProcessError):
             _run(
                 ["git", "fetch", "origin", self.branch],
@@ -117,6 +118,7 @@ class MemoryStore:
             )
         except subprocess.CalledProcessError:
             # Fall back: create local tracking branch first.
+            # Best-effort branch creation; the remote may already have been pushed.
             with suppress(subprocess.CalledProcessError):
                 _run(
                     ["git", "branch", self.branch, f"origin/{self.branch}"],

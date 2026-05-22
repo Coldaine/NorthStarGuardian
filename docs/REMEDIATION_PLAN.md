@@ -1,6 +1,6 @@
 # NorthStarGuardian — Audit Findings & Remediation Plan
 
-> **Status:** Findings documented. No implementation started — awaiting prioritization.
+> **Status:** Partial implementation in progress. See completed items below.
 
 ---
 
@@ -21,10 +21,10 @@ The entire codebase is hardwired to the Anthropic Python SDK:
 - **`pyproject.toml:13`** — `anthropic>=0.40.0` is a hard dependency.
 
 This means:
-- You need an `ANTHROPIC_API_KEY` secret, not an OpenAI key
-- The `system` prompt parameter is Anthropic-specific (OpenAI uses `role: "developer"` in the messages array in the Responses API)
-- The `messages.create()` API is not compatible with OpenAI's Responses API or Chat Completions API
-- The model names (`claude-sonnet-4-6`, `claude-opus-4-7`) are Anthropic models
+- You need an `ANTHROPIC_API_KEY` secret (currently; swapping to `OPENAI_API_KEY` is the migration goal)
+- The `system` prompt parameter is Anthropic-specific (OpenAI uses a top-level `instructions` field or `role: "developer"`/`role: "system"` in the input array in the Responses API — check the latest API docs for the current canonical shape)
+- The `messages.create()` API is Anthropic-specific (OpenAI uses `client.responses.create()` in the Responses API or `client.chat.completions.create()` in the Chat Completions API — verify compatibility with the current API version)
+- The model names (`claude-sonnet-4-6`, `claude-opus-4-7`) are Anthropic models — verify the latest official model IDs before migrating
 
 ### What Needs to Change
 
@@ -60,14 +60,14 @@ Each backend wraps the raw SDK and exposes a single `generate(prompt: str, syste
 
 ### Category A: Infrastructure / Maintainability
 
-| # | Issue | Severity | Notes |
-|---|-------|----------|-------|
-| A1 | 5 duplicate FakeStore implementations across test files | High | DRY violation; `test_chronicle.py`, `test_dashboard.py`, `test_governance.py`, `test_examples.py` all define their own inline FakeStore instead of importing from `conftest.py` |
-| A2 | Private functions accessed from other modules (`chronicle._load_saga_index`) | Medium | `cli.py` and `dashboard.py` access `chronicle._load_saga_index` and `_saga_from_index_entry` which are conventionally private |
-| A3 | Dead code: `render_constitution_template` | Low | Defined at `constitution.py:345` but never called anywhere |
-| A4 | Near-duplicate functions: `assess_intent` / `assess_intent_with_constitution` | Medium | 58 lines of nearly identical code; only difference is constitution parameter |
-| A5 | Template path/env config is duplicated | Low | `_TEMPLATE_DIR`/`_TEMPLATES_DIR` defined separately in `analyze.py`, `chronicle.py`, `dashboard.py`, `constitution.py` |
-| A6 | `write()` method's `message` parameter silently dropped | Low | Documented as "accepted but ignored" |
+| # | Issue | Severity | Notes | Status |
+|---|-------|----------|-------|--------|
+| A1 | 5 duplicate FakeStore implementations across test files | High | DRY violation; `test_chronicle.py`, `test_dashboard.py`, `test_governance.py`, `test_examples.py` all define their own inline FakeStore instead of importing from `conftest.py` | ✅ RESOLVED — Consolidated into `tests/conftest.py` with `__enter__`/`__exit__` |
+| A2 | Private functions accessed from other modules (`chronicle._load_saga_index`) | Medium | `cli.py` and `dashboard.py` access `chronicle._load_saga_index` and `_saga_from_index_entry` which are conventionally private | ✅ RESOLVED — Promoted to public `load_saga_index`/`saga_from_index_entry` with backward-compat aliases |
+| A3 | Dead code: `render_constitution_template` | Low | Defined at `constitution.py:345` but never called anywhere | ✅ RESOLVED — Removed |
+| A4 | Near-duplicate functions: `assess_intent` / `assess_intent_with_constitution` | Medium | 58 lines of nearly identical code; only difference is constitution parameter | ✅ RESOLVED — Merged into `assess_intent(constitution=...)` |
+| A5 | Template path/env config is duplicated | Low | `_TEMPLATE_DIR`/`_TEMPLATES_DIR` defined separately in `analyze.py`, `chronicle.py`, `dashboard.py`, `constitution.py` | |
+| A6 | `write()` method's `message` parameter silently dropped | Low | Documented as "accepted but ignored" | |
 
 ### Category B: Production Bugs
 

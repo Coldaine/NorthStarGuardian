@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "lastScanned": 1779441861938,
-  "projectRoot": "D:\\_projects\\NorthStarGuardian",
+  "projectRoot": ".",
   "techStack": {
     "languages": [
       {
@@ -51,10 +51,11 @@
     "docs": {
       "path": "docs",
       "purpose": "Documentation",
-      "fileCount": 2,
+      "fileCount": 3,
       "lastAccessed": 1779441861928,
       "keyFiles": [
         "ADDENDUM.md",
+        "REMEDIATION_PLAN.md",
         "SPEC.md"
       ]
     },

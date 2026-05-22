@@ -70,17 +70,10 @@ PR_META: dict[str, Any] = {
 }
 
 
-def _llm_response(text: str) -> MagicMock:
-    """Mock anthropic response whose .content[0].text == text."""
-    block = MagicMock()
-    block.text = text
-    resp = MagicMock()
-    resp.content = [block]
-    return resp
 
 
 def _build_mock_client(principle_ids: list[str], verdict: str = "aligned") -> MagicMock:
-    """Mock anthropic client driving the 5 LLM calls of run_interview + assign_saga.
+    """Mock llm client driving the 5 LLM calls of run_interview + assign_saga.
 
     `verdict` controls what evaluate_alignment returns for the (one) relevant
     principle: "aligned", "drift", or "ambiguous".
@@ -102,13 +95,18 @@ def _build_mock_client(principle_ids: list[str], verdict: str = "aligned") -> Ma
     chronicle_prose = f"PR #42 was assessed as {verdict}."
 
     client = MagicMock()
-    client.messages.create.side_effect = [
-        _llm_response(intent_json),
-        _llm_response(alignment_json),
-        _llm_response("[]"),
-        _llm_response(chronicle_prose),
-        _llm_response("CREATE: New Saga"),
+    client.generate.side_effect = [
+        intent_json,
+        alignment_json,
+        "[]",
+        chronicle_prose,
     ]
+    # assign_saga still uses client.messages.create() directly
+    saga_block = MagicMock()
+    saga_block.text = "CREATE: New Saga"
+    saga_resp = MagicMock()
+    saga_resp.content = [saga_block]
+    client.messages.create.return_value = saga_resp
     return client
 
 
@@ -177,12 +175,12 @@ def test_full_pr_interview_cycle(
     assert report.overall_verdict.value == verdict
     assert report.chronicle_paragraph
     assert report.intent.one_line
-    assert client.messages.create.call_count == 4
+    assert client.generate.call_count == 4
 
     saga = assign_saga(
         store, report.intent, existing_sagas=[], client=client, model="claude-test-mock",
     )
-    assert client.messages.create.call_count == 5
+    assert client.messages.create.call_count == 1
     assert saga.id
     assert saga.name == "New Saga"
 

@@ -60,6 +60,30 @@ def _render(template_name: str, **ctx: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Prompt-building helpers  (pure functions, no LLM call)
+# ---------------------------------------------------------------------------
+
+
+def build_evaluate_alignment_prompt(diff: DiffAnalysis, constitution: Constitution) -> str:
+    """Build the prompt for evaluate_alignment (no LLM call)."""
+    return _render("evaluate_alignment.md.j2", constitution=constitution, diff=diff)
+
+
+def build_detect_anti_patterns_prompt(diff: DiffAnalysis, constitution: Constitution) -> str:
+    """Build the prompt for detect_anti_patterns (no LLM call)."""
+    return _render("detect_anti_patterns.md.j2", constitution=constitution, diff=diff)
+
+
+def build_assess_intent_prompt(
+    pr_meta: dict[str, Any],
+    diff: DiffAnalysis,
+    constitution: Constitution,
+) -> str:
+    """Build the prompt for assess_intent (no LLM call)."""
+    return _render("assess_intent.md.j2", constitution=constitution, pr_meta=pr_meta, diff=diff)
+
+
+# ---------------------------------------------------------------------------
 # Import-detection regexes  (language-agnostic best-effort)
 # ---------------------------------------------------------------------------
 
@@ -231,18 +255,12 @@ def _call_llm(
     user: str,
     max_tokens: int = 4096,
 ) -> str:
-    """Call client.messages.create and return the first text block content."""
-    response = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
+    """Call client.generate and return the response text."""
+    return client.generate(
         system=system,
-        messages=[{"role": "user", "content": user}],
+        user=user,
+        model=model,
     )
-    # Extract text from first content block
-    for block in response.content:
-        if hasattr(block, "text"):
-            return block.text
-    raise LLMOutputError("LLM response contained no text content block")
 
 
 def _parse_json_response(raw: str, context: str) -> Any:
@@ -301,11 +319,7 @@ def evaluate_alignment(
     LLMOutputError
         If the LLM response cannot be parsed or does not match the schema.
     """
-    prompt = _render(
-        "evaluate_alignment.md.j2",
-        constitution=constitution,
-        diff=diff,
-    )
+    prompt = build_evaluate_alignment_prompt(diff, constitution)
 
     raw = _call_llm(
         client,
@@ -403,11 +417,7 @@ def detect_anti_patterns(
     if not constitution.anti_patterns:
         return []
 
-    prompt = _render(
-        "detect_anti_patterns.md.j2",
-        constitution=constitution,
-        diff=diff,
-    )
+    prompt = build_detect_anti_patterns_prompt(diff, constitution)
 
     raw = _call_llm(
         client,
@@ -493,12 +503,8 @@ def assess_intent(
     body_text = pr_meta.get("body") or ""
     declared_variances = _parse_variance_tags(body_text)
 
-    prompt = _render(
-        "assess_intent.md.j2",
-        constitution=constitution or _DUMMY_CONSTITUTION_FOR_INTENT,
-        pr_meta=pr_meta,
-        diff=diff,
-    )
+    effective_constitution = constitution or _DUMMY_CONSTITUTION_FOR_INTENT
+    prompt = build_assess_intent_prompt(pr_meta, diff, effective_constitution)
 
     raw = _call_llm(
         client,

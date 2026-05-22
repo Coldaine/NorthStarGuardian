@@ -33,12 +33,12 @@ from guardian.models import (
     Verdict,
 )
 
-_TEMPLATES_DIR = Path(__file__).parent / "templates"
+_TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 
 def _jinja_env() -> Environment:
     return Environment(
-        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
+        loader=FileSystemLoader(str(_TEMPLATE_DIR)),
         autoescape=False,
         keep_trailing_newline=True,
     )
@@ -191,7 +191,7 @@ def generate_quadrant(
       ambiguous → middle    (0.50), middle   (0.50)
       drift     → low value (0.25), high debt (0.75)
 
-    Points are jittered slightly by PR number mod to avoid perfect overlap.
+    Points are jittered with a small deterministic hash to avoid perfect overlap.
     """
     lines: list[str] = [
         "quadrantChart",
@@ -351,17 +351,18 @@ def _load_drift_events(store: MemoryStore) -> list[DriftEvent]:
         return []
     try:
         raw = store.read_json("drift-ledger.json")
+        if raw is None:
+            return []
         if isinstance(raw, dict):
             raw_events = raw.get("events", [])
         elif isinstance(raw, list):
             raw_events = raw
         else:
             return []
-
         events: list[DriftEvent] = []
         for item in raw_events:
             events.append(DriftEvent(**item))
         return events
-    except (ValueError, KeyError, TypeError) as exc:
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
         warnings.warn(f"drift-ledger.json is corrupt: {exc}", stacklevel=2)
         return []

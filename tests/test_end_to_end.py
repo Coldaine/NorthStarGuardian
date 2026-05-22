@@ -79,33 +79,27 @@ def _llm_response(text: str) -> MagicMock:
     return resp
 
 
-def _build_mock_client(principle_ids: list[str]) -> MagicMock:
-    """Mock anthropic client with side_effect for the 5 LLM calls below.
+def _build_mock_client(principle_ids: list[str], verdict: str = "aligned") -> MagicMock:
+    """Mock anthropic client driving the 5 LLM calls of run_interview + assign_saga.
 
-    run_interview makes calls 1-4 (assess_intent, evaluate_alignment,
-    detect_anti_patterns, _draft_chronicle). assign_saga makes call 5.
+    `verdict` controls what evaluate_alignment returns for the (one) relevant
+    principle: "aligned", "drift", or "ambiguous".
     """
     intent_json = json.dumps({
-        "one_line": "Refactored the analyze module to improve clarity.",
-        "paragraph": (
-            "The PR refactored the analyze module, removing old_code() in favour of "
-            "new_code() and adding an os import. No architectural shift was signalled."
-        ),
+        "one_line": "Refactored the analyze module.",
+        "paragraph": "The PR refactored the analyze module by swapping helpers.",
     })
     alignment_json = json.dumps([
         {
             "principle_id": pid,
             "relevant": (i == 0),
-            "verdict": "aligned" if i == 0 else None,
-            "reasoning": "Change stays within declared architecture." if i == 0 else None,
+            "verdict": verdict if i == 0 else None,
+            "reasoning": f"Verdict reasoning for {verdict}." if i == 0 else None,
             "citations": ["guardian/analyze.py:2"] if i == 0 else [],
         }
         for i, pid in enumerate(principle_ids)
     ])
-    chronicle_prose = (
-        "PR #42 refactored the analyze module, replacing old_code() with new_code() "
-        "and adding an os import. Assessed as aligned. No drift was detected."
-    )
+    chronicle_prose = f"PR #42 was assessed as {verdict}."
 
     client = MagicMock()
     client.messages.create.side_effect = [
@@ -159,7 +153,10 @@ def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
     return repo, store
 
 
-def test_full_pr_interview_cycle(repo_and_store: tuple[Path, MemoryStore]) -> None:
+@pytest.mark.parametrize("verdict", ["aligned", "ambiguous", "drift"])
+def test_full_pr_interview_cycle(
+    repo_and_store: tuple[Path, MemoryStore], verdict: str,
+) -> None:
     from guardian.constitution import read_constitution
 
     _repo, store = repo_and_store
@@ -171,13 +168,13 @@ def test_full_pr_interview_cycle(repo_and_store: tuple[Path, MemoryStore]) -> No
     principle_ids = [p.id for p in constitution.principles]
     assert len(principle_ids) == 5
 
-    client = _build_mock_client(principle_ids)
+    client = _build_mock_client(principle_ids, verdict=verdict)
 
     report = run_interview(
         diff_analysis, constitution, client=client, model="claude-test-mock", pr_meta=PR_META,
     )
     assert report.pr_number == 42
-    assert report.overall_verdict.value in {"aligned", "ambiguous", "drift"}
+    assert report.overall_verdict.value == verdict
     assert report.chronicle_paragraph
     assert report.intent.one_line
     assert client.messages.create.call_count == 4

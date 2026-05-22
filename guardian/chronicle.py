@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -330,7 +330,7 @@ def assign_saga(
     new_saga = Saga(
         id=unique_slug,
         name=new_name,
-        start_date=datetime.utcnow(),
+        start_date=datetime.now(UTC),
         status=SagaStatus.ACTIVE,
         pr_numbers=[],
         description="",

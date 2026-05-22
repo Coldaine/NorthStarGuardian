@@ -15,6 +15,7 @@ result to the orphan branch via store.write().
 from __future__ import annotations
 
 import re
+import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -215,7 +216,7 @@ def generate_quadrant(
     for entry in journal:
         debt_base, value_base = _VERDICT_SCORES[entry.verdict]
         # Small jitter from pr_number so overlapping verdicts spread out
-        jitter = (entry.pr_number % 7) * 0.03 - 0.09
+        jitter = ((entry.pr_number * 17 + 31) % 13) * 0.015 - 0.09
         debt = round(max(0.05, min(0.95, debt_base + jitter)), 2)
         value = round(max(0.05, min(0.95, value_base - jitter)), 2)
         label = f"PR#{entry.pr_number}"
@@ -361,5 +362,6 @@ def _load_drift_events(store: MemoryStore) -> list[DriftEvent]:
         for item in raw_events:
             events.append(DriftEvent(**item))
         return events
-    except (TypeError, ValueError, KeyError):
+    except (ValueError, KeyError, TypeError) as exc:
+        warnings.warn(f"drift-ledger.json is corrupt: {exc}", stacklevel=2)
         return []

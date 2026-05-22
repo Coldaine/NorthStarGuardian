@@ -7,6 +7,7 @@ lives in the imported modules; this file is only orchestration and I/O.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -32,8 +33,8 @@ def _load_config(store: MemoryStore) -> GuardianConfig:
         try:
             raw = store.read_json(_CONFIG_PATH)
             return GuardianConfig(**raw)
-        except Exception:
-            pass
+        except (json.JSONDecodeError, KeyError, TypeError):
+            click.echo("Warning: corrupt guardian-config.json, using defaults")
     return GuardianConfig()
 
 

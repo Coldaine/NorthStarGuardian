@@ -137,7 +137,7 @@ def _compose_journal_markdown(
     return "\n".join(lines)
 
 
-def _load_saga_index(store: MemoryStore) -> dict[str, Any]:
+def load_saga_index(store: MemoryStore) -> dict[str, Any]:
     """Return the saga index dict, creating an empty one if absent."""
     if store.exists("sagas/_index.json"):
         return store.read_json("sagas/_index.json")
@@ -148,7 +148,7 @@ def _save_saga_index(store: MemoryStore, index: dict[str, Any]) -> None:
     store.write_json("sagas/_index.json", index)
 
 
-def _saga_from_index_entry(entry: dict[str, Any]) -> Saga:
+def saga_from_index_entry(entry: dict[str, Any]) -> Saga:
     """Reconstruct a Saga from a stored index entry or saga-file frontmatter dict."""
     return Saga(
         id=entry["id"],
@@ -159,6 +159,11 @@ def _saga_from_index_entry(entry: dict[str, Any]) -> Saga:
         pr_numbers=entry.get("pr_numbers", []),
         description=entry.get("description", ""),
     )
+
+
+# Backward-compat aliases
+_load_saga_index = load_saga_index
+_saga_from_index_entry = saga_from_index_entry
 
 
 def _saga_to_frontmatter(saga: Saga) -> str:
@@ -340,7 +345,7 @@ def assign_saga(
     store.write(f"sagas/{unique_slug}.md", _saga_to_frontmatter(new_saga))
 
     # Update index
-    index = _load_saga_index(store)
+    index = load_saga_index(store)
     index["sagas"].append(
         {
             "id": new_saga.id,
@@ -380,7 +385,7 @@ def update_saga(store: MemoryStore, saga: Saga, pr_number: int) -> Saga:
     store.write(f"sagas/{updated.id}.md", _saga_to_frontmatter(updated))
 
     # Update index entry
-    index = _load_saga_index(store)
+    index = load_saga_index(store)
     for entry in index["sagas"]:
         if entry["id"] == updated.id:
             entry["pr_numbers"] = updated.pr_numbers

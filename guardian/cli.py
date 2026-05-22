@@ -221,9 +221,9 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
     # 5. Load existing sagas and assign the saga for this PR.
     # _load_saga_index and _saga_from_index_entry are module-internal helpers;
     # accessing them is acceptable here since cli.py is a first-party sibling.
-    saga_index = chronicle._load_saga_index(store)
+    saga_index = chronicle.load_saga_index(store)
     all_sagas = [
-        chronicle._saga_from_index_entry(entry)
+        chronicle.saga_from_index_entry(entry)
         for entry in saga_index.get("sagas", [])
     ]
     saga = chronicle.assign_saga(

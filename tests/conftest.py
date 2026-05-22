@@ -52,6 +52,12 @@ class FakeStore:
     def commit_and_push(self, message: str, push: bool = True) -> None:
         pass  # no-op for in-memory store
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.commit_and_push("store context exit")
+
     # Context manager session
     def session(self, message: str, push: bool = True):
         from contextlib import contextmanager

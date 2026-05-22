@@ -7,10 +7,8 @@ containing the expected sections.
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from html.parser import HTMLParser
-from typing import Any
 
 from guardian.dashboard import (
     generate_gantt,
@@ -30,40 +28,7 @@ from guardian.models import (
     SagaStatus,
     Verdict,
 )
-
-# ---------------------------------------------------------------------------
-# FakeStore (same pattern as test_chronicle)
-# ---------------------------------------------------------------------------
-
-
-class FakeStore:
-    """In-memory MemoryStore substitute."""
-
-    def __init__(self) -> None:
-        self._files: dict[str, str] = {}
-
-    def read(self, path: str) -> str:
-        if path not in self._files:
-            raise FileNotFoundError(path)
-        return self._files[path]
-
-    def read_json(self, path: str) -> Any:
-        return json.loads(self.read(path))
-
-    def exists(self, path: str) -> bool:
-        return path in self._files
-
-    def write(self, path: str, content: str, message: str = "") -> None:
-        self._files[path] = content
-
-    def write_json(self, path: str, obj: Any, message: str = "") -> None:
-        self._files[path] = json.dumps(obj, indent=2, default=str)
-
-    def list(self, prefix: str = "") -> list[str]:
-        if prefix:
-            return sorted(k for k in self._files if k.startswith(prefix))
-        return sorted(self._files.keys())
-
+from tests.conftest import FakeStore
 
 # ---------------------------------------------------------------------------
 # HTML validation helper

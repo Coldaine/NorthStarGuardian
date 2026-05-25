@@ -235,12 +235,13 @@ class GuardianConfig(BaseModel):
     anthropic_model_analysis: str = "claude-sonnet-4-6"
     anthropic_model_initialization: str = "claude-opus-4-7"
     enable_blocking_escalation: bool = False
-    """Whether expired debt timers escalate to blocking future PRs.
+    """Whether expired debt timers may opt into blocking future PRs.
 
     Default off to honor the North Star anti-goal "the Guardian must never
     become an authority." Operators can opt in per repo by flipping this in
-    `meta/guardian-config.json`. The escalation machinery is still recorded
-    even when this is False — only the merge-block side effect is gated.
+    `meta/guardian-config.json`, but the default path is advisory and
+    memory-only. The escalation machinery is still recorded even when this is
+    False — only the merge-block side effect is gated.
     """
 
     variance_default_days: int = 7

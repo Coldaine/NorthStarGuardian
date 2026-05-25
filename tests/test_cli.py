@@ -351,6 +351,7 @@ class TestInterview:
         mock_ctx.event_name = "pull_request"
 
         mock_diff_analysis = MagicMock(spec=DiffAnalysis)
+        config = GuardianConfig()
 
         env = {
             "GITHUB_TOKEN": "test-token",
@@ -366,7 +367,7 @@ class TestInterview:
             patch("guardian.cli.get_pr_meta", return_value={"number": 42, "title": "Add feature", "body": "", "author": "dev", "base_sha": "abc", "head_sha": "def"}),
             patch("guardian.cli.read_constitution", return_value=constitution),
             patch("guardian.cli._make_anthropic_client", return_value=MagicMock()),
-            patch("guardian.cli._load_config", return_value=GuardianConfig()),
+            patch("guardian.cli._load_config", return_value=config),
             patch("guardian.governance.log_drift") as mock_log_drift,
             patch("guardian.governance.grant_variance") as mock_grant_variance,
             patch("guardian.cli.post_pr_comment"),
@@ -383,8 +384,8 @@ class TestInterview:
             with (
                 patch.object(analyze_mod, "analyze_diff", return_value=mock_diff_analysis),
                 patch.object(analyze_mod, "run_interview", return_value=report),
-                patch.object(chronicle_mod, "_load_saga_index", return_value={"sagas": []}),
-                patch.object(chronicle_mod, "_saga_from_index_entry", return_value=mock_saga),
+                patch.object(chronicle_mod, "load_saga_index", return_value={"sagas": []}),
+                patch.object(chronicle_mod, "saga_from_index_entry", return_value=mock_saga),
                 patch.object(chronicle_mod, "assign_saga", return_value=mock_saga),
                 patch.object(chronicle_mod, "update_saga", return_value=mock_saga),
                 patch.object(chronicle_mod, "write_journal_entry"),
@@ -406,6 +407,10 @@ class TestInterview:
             details="Violated principle one",
         )
         mock_grant_variance.assert_called_once()
-        call_kwargs = mock_grant_variance.call_args
-        assert call_kwargs[0][0] is mock_store
-        assert call_kwargs[1]["pr_number"] == 42
+        args, kwargs = mock_grant_variance.call_args
+        assert args == (mock_store,)
+        assert kwargs == {
+            "tag": report.intent.declared_variances[0],
+            "pr_number": 42,
+            "config": config,
+        }

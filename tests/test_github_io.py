@@ -51,10 +51,9 @@ class TestGitHubContextFromEnv:
         assert ctx.event_name == "pull_request"
         assert ctx.pr is not None
         assert ctx.pr.number == 42
-        assert ctx.comment_body is None
 
-    def test_issue_comment_event(self, tmp_path: Path) -> None:
-        """from_env correctly parses an issue_comment event."""
+    def test_issue_comment_event_is_ignored(self, tmp_path: Path) -> None:
+        """from_env ignores issue_comment events; Guardian has no command surface."""
         payload = {
             "comment": {"body": "/status"},
             "issue": {"number": 42},
@@ -81,8 +80,8 @@ class TestGitHubContextFromEnv:
             ctx = GitHubContext.from_env(event_path=str(event_file))
 
         assert ctx.event_name == "issue_comment"
-        assert ctx.comment_body == "/status"
-        assert ctx.pr is not None
+        assert ctx.pr is None
+        mock_repo.get_pull.assert_not_called()
 
     def test_no_pr_in_event(self, tmp_path: Path) -> None:
         """from_env returns pr=None when no PR is in the event."""
@@ -94,7 +93,7 @@ class TestGitHubContextFromEnv:
             patch("guardian.github_io.os.environ", {
                 "GITHUB_TOKEN": "test-token",
                 "GITHUB_REPOSITORY": "test/repo",
-                "GITHUB_EVENT_NAME": "issue_comment",
+                "GITHUB_EVENT_NAME": "pull_request",
             }),
             patch("guardian.github_io.Github"),
         ):

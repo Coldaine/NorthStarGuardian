@@ -9,7 +9,6 @@ import json
 import subprocess
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -18,6 +17,7 @@ from guardian.chronicle import assign_saga, update_saga, write_journal_entry
 from guardian.constitution import initialize_constitution, write_constitution
 from guardian.dashboard import render_dashboard
 from guardian.memory import MemoryStore
+from tests.conftest import FakeLLMClient
 
 
 def _git(args: list[str], cwd: Path) -> str:
@@ -72,8 +72,8 @@ PR_META: dict[str, Any] = {
 
 
 
-def _build_mock_client(principle_ids: list[str], verdict: str = "aligned") -> MagicMock:
-    """Mock llm client driving the 5 LLM calls of run_interview + assign_saga.
+def _build_fake_client(principle_ids: list[str], verdict: str = "aligned") -> FakeLLMClient:
+    """Fake LLM client driving the 5 LLM calls of run_interview + assign_saga.
 
     `verdict` controls what evaluate_alignment returns for the (one) relevant
     principle: "aligned", "drift", or "ambiguous".
@@ -94,24 +94,13 @@ def _build_mock_client(principle_ids: list[str], verdict: str = "aligned") -> Ma
     ])
     chronicle_prose = f"PR #42 was assessed as {verdict}."
 
-    client = MagicMock()
-    client.generate.side_effect = [
+    return FakeLLMClient(
         intent_json,
         alignment_json,
         "[]",
         chronicle_prose,
-    ]
-    # assign_saga (chronicle.py:284) still calls client.messages.create() directly
-    # on the old Anthropic SDK interface. This MagicMock bridge stays until the
-    # LLM provider migration (REMEDIATION_PLAN.md: CRITICAL ISSUE) abstracts that
-    # boundary behind an LLMClient protocol. Do NOT replicate this pattern in new
-    # tests — use FakeLLMClient from conftest.py instead.
-    saga_block = MagicMock()
-    saga_block.text = "CREATE: New Saga"
-    saga_resp = MagicMock()
-    saga_resp.content = [saga_block]
-    client.messages.create.return_value = saga_resp
-    return client
+        "CREATE: New Saga",
+    )
 
 
 @pytest.fixture()
@@ -136,7 +125,7 @@ def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
                 "Tests mock LLM calls; no real network access in CI.",
             ],
             "approved_architecture": (
-                "Python 3.11+, Pydantic v2 models, Anthropic SDK for LLM calls, "
+                "Python 3.11+, Pydantic v2 models, a Guardian LLMClient adapter, "
                 "Jinja2 for templating, unidiff for diff parsing."
             ),
             "anti_patterns": [
@@ -170,7 +159,7 @@ def test_full_pr_interview_cycle(
     principle_ids = [p.id for p in constitution.principles]
     assert len(principle_ids) == 5
 
-    client = _build_mock_client(principle_ids, verdict=verdict)
+    client = _build_fake_client(principle_ids, verdict=verdict)
 
     report = run_interview(
         diff_analysis, constitution, client=client, model="claude-test-mock", pr_meta=PR_META,
@@ -179,12 +168,12 @@ def test_full_pr_interview_cycle(
     assert report.overall_verdict.value == verdict
     assert report.chronicle_paragraph
     assert report.intent.one_line
-    assert client.generate.call_count == 4
+    assert client.call_count == 4
 
     saga = assign_saga(
         store, report.intent, existing_sagas=[], client=client, model="claude-test-mock",
     )
-    assert client.messages.create.call_count == 1
+    assert client.call_count == 5
     assert saga.id
     assert saga.name == "New Saga"
 

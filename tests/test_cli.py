@@ -160,16 +160,18 @@ class TestInterview:
             }
         }
 
-    def test_interview_pipeline_called(self, tmp_path: Path) -> None:
+    def _run_interview_command(
+        self,
+        tmp_path: Path,
+        report: InterviewReport,
+        *,
+        constitution: Constitution | None = None,
+        config: GuardianConfig | None = None,
+    ) -> dict[str, Any]:
         runner = CliRunner()
-
-        # Write a fake event payload to disk.
-        payload = self._make_event_payload(42)
+        payload = self._make_event_payload(report.pr_number)
         event_file = tmp_path / "event.json"
         event_file.write_text(json.dumps(payload), encoding="utf-8")
-
-        constitution = _make_constitution()
-        report = _make_report(42)
 
         mock_store = MagicMock()
         mock_store.exists.return_value = False
@@ -187,6 +189,8 @@ class TestInterview:
         mock_ctx.event_name = "pull_request"
 
         mock_diff_analysis = MagicMock(spec=DiffAnalysis)
+        config = config or GuardianConfig()
+        constitution = constitution or _make_constitution()
 
         env = {
             "GITHUB_TOKEN": "test-token",
@@ -202,7 +206,9 @@ class TestInterview:
             patch("guardian.cli.get_pr_meta", return_value={"number": 42, "title": "Add feature", "body": "", "author": "dev", "base_sha": "abc", "head_sha": "def"}),
             patch("guardian.cli.read_constitution", return_value=constitution),
             patch("guardian.cli._make_anthropic_client", return_value=MagicMock()),
-            patch("guardian.cli._load_config", return_value=GuardianConfig()),
+            patch("guardian.cli._load_config", return_value=config),
+            patch("guardian.governance.log_drift") as mock_log_drift,
+            patch("guardian.governance.grant_variance") as mock_grant_variance,
             patch("guardian.cli.post_pr_comment") as mock_post,
         ):
             mock_ctx_cls.from_env.return_value = mock_ctx
@@ -231,11 +237,26 @@ class TestInterview:
                     env=env,
                 )
 
+        return {
+            "result": result,
+            "store": mock_store,
+            "post_comment": mock_post,
+            "log_drift": mock_log_drift,
+            "grant_variance": mock_grant_variance,
+            "config": config,
+        }
+
+    def test_interview_pipeline_called(self, tmp_path: Path) -> None:
+        run = self._run_interview_command(tmp_path, _make_report(42))
+        result = run["result"]
+
         assert result.exit_code == 0, result.output
+        mock_post = run["post_comment"]
         mock_post.assert_called_once()
-        # The comment body should mention the PR number.
         comment_body = mock_post.call_args[0][1]
         assert "42" in comment_body
+        run["log_drift"].assert_not_called()
+        run["grant_variance"].assert_not_called()
 
     def test_interview_skips_without_anthropic_key(self, tmp_path: Path) -> None:
         runner = CliRunner()
@@ -292,12 +313,6 @@ class TestInterview:
         assert result.exit_code != 0
 
     def test_interview_logs_drift_events(self, tmp_path: Path) -> None:
-        runner = CliRunner()
-
-        payload = self._make_event_payload(42)
-        event_file = tmp_path / "event.json"
-        event_file.write_text(json.dumps(payload), encoding="utf-8")
-
         constitution = _make_constitution()
         report = InterviewReport(
             pr_number=42,
@@ -334,81 +349,29 @@ class TestInterview:
             ),
             created_at=datetime(2026, 1, 2, tzinfo=UTC),
         )
-
-        mock_store = MagicMock()
-        mock_store.exists.return_value = False
-        mock_store.__enter__ = MagicMock(return_value=mock_store)
-        mock_store.__exit__ = MagicMock(return_value=False)
-        mock_store.session = MagicMock(return_value=mock_store)
-        mock_store.session.return_value.__enter__ = MagicMock(return_value=mock_store)
-        mock_store.session.return_value.__exit__ = MagicMock(return_value=False)
-
-        mock_pr = MagicMock()
-        mock_pr.number = 42
-
-        mock_ctx = MagicMock()
-        mock_ctx.pr = mock_pr
-        mock_ctx.event_name = "pull_request"
-
-        mock_diff_analysis = MagicMock(spec=DiffAnalysis)
         config = GuardianConfig()
-
-        env = {
-            "GITHUB_TOKEN": "test-token",
-            "GITHUB_REPOSITORY": "test/repo",
-            "GITHUB_EVENT_NAME": "pull_request",
-            "ANTHROPIC_API_KEY": "test-key",
-        }
-
-        with (
-            patch("guardian.cli.MemoryStore", return_value=mock_store),
-            patch("guardian.cli.GitHubContext") as mock_ctx_cls,
-            patch("guardian.cli.get_pr_diff", return_value="diff --git ..."),
-            patch("guardian.cli.get_pr_meta", return_value={"number": 42, "title": "Add feature", "body": "", "author": "dev", "base_sha": "abc", "head_sha": "def"}),
-            patch("guardian.cli.read_constitution", return_value=constitution),
-            patch("guardian.cli._make_anthropic_client", return_value=MagicMock()),
-            patch("guardian.cli._load_config", return_value=config),
-            patch("guardian.governance.log_drift") as mock_log_drift,
-            patch("guardian.governance.grant_variance") as mock_grant_variance,
-            patch("guardian.cli.post_pr_comment"),
-        ):
-            mock_ctx_cls.from_env.return_value = mock_ctx
-
-            import guardian.analyze as analyze_mod
-            import guardian.chronicle as chronicle_mod
-            import guardian.dashboard as dashboard_mod
-
-            mock_saga = MagicMock()
-            mock_saga.id = "test-saga"
-
-            with (
-                patch.object(analyze_mod, "analyze_diff", return_value=mock_diff_analysis),
-                patch.object(analyze_mod, "run_interview", return_value=report),
-                patch.object(chronicle_mod, "load_saga_index", return_value={"sagas": []}),
-                patch.object(chronicle_mod, "saga_from_index_entry", return_value=mock_saga),
-                patch.object(chronicle_mod, "assign_saga", return_value=mock_saga),
-                patch.object(chronicle_mod, "update_saga", return_value=mock_saga),
-                patch.object(chronicle_mod, "write_journal_entry"),
-                patch.object(dashboard_mod, "render_dashboard", return_value="<html/>"),
-            ):
-                result = runner.invoke(
-                    cli,
-                    ["interview", "--event-path", str(event_file), "--repo-root", str(tmp_path)],
-                    env=env,
-                )
+        run = self._run_interview_command(
+            tmp_path,
+            report,
+            constitution=constitution,
+            config=config,
+        )
+        result = run["result"]
 
         assert result.exit_code == 0, result.output
 
+        mock_log_drift = run["log_drift"]
         mock_log_drift.assert_called_once_with(
-            mock_store,
+            run["store"],
             pr_number=42,
             principle_id="p1",
             severity=DriftSeverity.MEDIUM,
             details="Violated principle one",
         )
+        mock_grant_variance = run["grant_variance"]
         mock_grant_variance.assert_called_once()
         args, kwargs = mock_grant_variance.call_args
-        assert args == (mock_store,)
+        assert args == (run["store"],)
         assert kwargs == {
             "tag": report.intent.declared_variances[0],
             "pr_number": 42,

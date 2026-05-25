@@ -21,14 +21,26 @@ class FakeLLMClient:
     def __init__(self, *responses: str) -> None:
         self._queue: list[str] = list(responses)
         self.call_count: int = 0
-        self.calls: list[dict[str, str]] = []  # (system, user) pairs
+        self.calls: list[dict[str, str | int]] = []
 
     def queue(self, response: str) -> None:
         self._queue.append(response)
 
-    def generate(self, *, system: str, user: str, model: str = "test") -> str:
+    def generate(
+        self,
+        *,
+        system: str,
+        user: str,
+        model: str = "test",
+        max_tokens: int = 4096,
+    ) -> str:
         self.call_count += 1
-        self.calls.append({"system": system, "user": user})
+        self.calls.append({
+            "system": system,
+            "user": user,
+            "model": model,
+            "max_tokens": max_tokens,
+        })
         if self._queue:
             return self._queue.pop(0)
         raise RuntimeError(

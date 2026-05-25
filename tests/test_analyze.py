@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -252,7 +252,10 @@ class TestAnalyzeDiff:
 @@ -0,0 +0,0 @@
 """
         result = analyze_diff(diff, simple_pr_meta)
-        assert len(result.files) >= 0
+        assert len(result.files) == 1
+        assert result.files[0].path == "image.png"
+        assert result.files[0].additions == 0
+        assert result.files[0].deletions == 0
 
     def test_no_imports_in_modified_file(self, simple_pr_meta: dict[str, Any]) -> None:
         diff = """\
@@ -504,10 +507,10 @@ class TestDetectAntiPatterns:
             created_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
-        client = MagicMock()
+        client = FakeLLMClient()
         result = detect_anti_patterns(diff, empty_constitution, client=client, model="test")
         assert result == []
-        client.messages.create.assert_not_called()
+        client.assert_call_count(0)
 
     def test_returns_matches(
         self, constitution: Constitution, simple_pr_meta: dict[str, Any]

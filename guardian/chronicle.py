@@ -15,10 +15,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import anthropic
 from jinja2 import Environment, FileSystemLoader
 
-from guardian.memory import MemoryStore
+from guardian.llm import LLMClient
 from guardian.models import (
     IntentSummary,
     InterviewReport,
@@ -137,14 +136,14 @@ def _compose_journal_markdown(
     return "\n".join(lines)
 
 
-def load_saga_index(store: MemoryStore) -> dict[str, Any]:
+def load_saga_index(store: Any) -> dict[str, Any]:
     """Return the saga index dict, creating an empty one if absent."""
     if store.exists("sagas/_index.json"):
         return store.read_json("sagas/_index.json")
     return {"sagas": []}
 
 
-def _save_saga_index(store: MemoryStore, index: dict[str, Any]) -> None:
+def _save_saga_index(store: Any, index: dict[str, Any]) -> None:
     store.write_json("sagas/_index.json", index)
 
 
@@ -189,7 +188,7 @@ def _saga_to_frontmatter(saga: Saga) -> str:
     return "\n".join(lines)
 
 
-def _load_saga_from_store(store: MemoryStore, saga_id: str) -> Saga:
+def _load_saga_from_store(store: Any, saga_id: str) -> Saga:
     """Read and parse a saga file from the store."""
     raw = store.read(f"sagas/{saga_id}.md")
     # Parse YAML frontmatter between --- delimiters
@@ -223,7 +222,7 @@ def _load_saga_from_store(store: MemoryStore, saga_id: str) -> Saga:
     )
 
 
-def _load_journal_entry(store: MemoryStore, path: str) -> JournalEntry | None:
+def _load_journal_entry(store: Any, path: str) -> JournalEntry | None:
     """Parse a journal file and return a JournalEntry, or None on parse failure."""
     try:
         raw = store.read(path)
@@ -258,7 +257,7 @@ def _load_journal_entry(store: MemoryStore, path: str) -> JournalEntry | None:
 
 
 def write_journal_entry(
-    store: MemoryStore,
+    store: Any,
     report: InterviewReport,
     saga: Saga | None,
 ) -> JournalEntry:
@@ -282,14 +281,14 @@ def write_journal_entry(
 
 
 def assign_saga(
-    store: MemoryStore,
+    store: Any,
     intent: IntentSummary,
     existing_sagas: list[Saga],
     *,
-    client: anthropic.Anthropic,
+    client: LLMClient,
     model: str,
 ) -> Saga:
-    """Use the Anthropic API to assign *intent* to an existing saga or create a new one.
+    """Use the configured LLM to assign *intent* to an existing saga or create a new one.
 
     Returns the matched or newly created :class:`Saga`. New sagas are persisted
     immediately (file + index update). Matched sagas are returned as-is; the
@@ -301,12 +300,16 @@ def assign_saga(
     template = env.get_template("assign_saga.md.j2")
     prompt = template.render(intent=intent, active_sagas=active_sagas)
 
-    message = client.messages.create(
+    response_text = client.generate(
+        system=(
+            "You are the Repository Guardian. Return exactly one saga decision: "
+            "MATCH: <saga-id> or CREATE: <saga name>."
+        ),
+        user=prompt,
         model=model,
         max_tokens=256,
-        messages=[{"role": "user", "content": prompt}],
     )
-    response_text = message.content[0].text.strip()
+    response_text = response_text.strip()
 
     # Parse LLM response
     if response_text.startswith("MATCH:"):
@@ -362,7 +365,7 @@ def assign_saga(
     return new_saga
 
 
-def update_saga(store: MemoryStore, saga: Saga, pr_number: int) -> Saga:
+def update_saga(store: Any, saga: Saga, pr_number: int) -> Saga:
     """Append *pr_number* to *saga* and persist the updated saga file.
 
     Returns the updated :class:`Saga`. If *pr_number* is already in
@@ -409,7 +412,7 @@ def update_saga(store: MemoryStore, saga: Saga, pr_number: int) -> Saga:
 
 
 def read_chronicle(
-    store: MemoryStore,
+    store: Any,
     *,
     since: datetime | None = None,
     saga_id: str | None = None,

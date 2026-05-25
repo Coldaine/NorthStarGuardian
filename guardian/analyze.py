@@ -255,11 +255,12 @@ def _call_llm(
     user: str,
     max_tokens: int = 4096,
 ) -> str:
-    """Call client.generate and return the response text."""
+    """Call the configured LLM client and return response text."""
     return client.generate(
         system=system,
         user=user,
         model=model,
+        max_tokens=max_tokens,
     )
 
 
@@ -305,7 +306,7 @@ def evaluate_alignment(
     constitution:
         The project's Constitution document.
     client:
-        An ``anthropic.Anthropic`` (or compatible) client instance.
+        An object implementing the Guardian ``generate`` LLM interface.
     model:
         Model identifier string.
 

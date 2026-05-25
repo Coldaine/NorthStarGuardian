@@ -106,29 +106,26 @@ class MemoryStore:
             # Worktree already attached; nothing to do.
             return
 
-        # Try adding the worktree using the remote-tracking ref.
+        # Prefer a real local branch in fresh CI clones so normal git status/log
+        # output is easy to reason about. If that branch is already checked out
+        # in another local worktree (common in tests or local development), fall
+        # back to the remote-tracking ref; commit_and_push pushes HEAD explicitly
+        # so detached worktrees still persist correctly.
         try:
             _run(
                 [
-                    "git", "worktree", "add",
+                    "git", "worktree", "add", "-B", self.branch,
                     str(self.worktree_path),
                     f"origin/{self.branch}",
                 ],
                 cwd=self.repo_root,
             )
         except subprocess.CalledProcessError:
-            # Fall back: create local tracking branch first.
-            # Best-effort branch creation; the remote may already have been pushed.
-            with suppress(subprocess.CalledProcessError):
-                _run(
-                    ["git", "branch", self.branch, f"origin/{self.branch}"],
-                    cwd=self.repo_root,
-                )
             _run(
                 [
                     "git", "worktree", "add",
                     str(self.worktree_path),
-                    self.branch,
+                    f"origin/{self.branch}",
                 ],
                 cwd=self.repo_root,
             )
@@ -278,12 +275,10 @@ class MemoryStore:
         )
 
         if push:
-            # Not fatal — the commit succeeded locally.
-            with suppress(subprocess.CalledProcessError):
-                _run(
-                    ["git", "push", "origin", self.branch],
-                    cwd=self.worktree_path,
-                )
+            _run(
+                ["git", "push", "origin", f"HEAD:{self.branch}"],
+                cwd=self.worktree_path,
+            )
 
     # ------------------------------------------------------------------
     # Session context manager

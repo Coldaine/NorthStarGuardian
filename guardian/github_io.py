@@ -30,7 +30,6 @@ class GitHubContext:
     event_name: str
     event_payload: dict[str, Any]
     pr: PullRequest | None = field(default=None)
-    comment_body: str | None = field(default=None)
 
     # ------------------------------------------------------------------
     # Factory
@@ -59,29 +58,17 @@ class GitHubContext:
         repo = gh.get_repo(repo_name)
 
         pr: PullRequest | None = None
-        comment_body: str | None = None
 
         if event_name == "pull_request":
             pr_number = payload.get("pull_request", {}).get("number")
             if pr_number is not None:
                 pr = repo.get_pull(int(pr_number))
 
-        elif event_name == "issue_comment":
-            comment_body = payload.get("comment", {}).get("body", "")
-            # The PR number is in payload.issue.number when triggered from a PR comment.
-            issue_number = payload.get("issue", {}).get("number")
-            if issue_number is not None:
-                try:
-                    pr = repo.get_pull(int(issue_number))
-                except Exception:
-                    pr = None  # Could be an issue comment, not a PR comment.
-
         return cls(
             repo=repo,
             event_name=event_name,
             event_payload=payload,
             pr=pr,
-            comment_body=comment_body,
         )
 
 

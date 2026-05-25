@@ -16,7 +16,7 @@ Pre-alpha. End-to-end test passing against a synthetic PR fixture. Not yet prove
 
 2. **Add the secret** — in your target repo go to Settings → Secrets and variables → Actions and add `ANTHROPIC_API_KEY` as a repository secret.
 
-3. **Author the Constitution** — comment `/init-guardian` on any open PR or issue; the Guardian will reply with setup instructions. Then, from a local checkout of the target repo, run `guardian init-local` to author the Constitution interactively (CI has no TTY, so the guided interview must run locally).
+3. **Author the Constitution** — from a local checkout of the target repo, run `guardian init-local` once to author the Constitution interactively. This is the only intentional human-facing setup flow; CI has no TTY, so the guided North Star interview runs locally and writes to `guardian-memory`.
 
 4. *(Optional)* **Enable the dashboard** — in your target repo go to Settings → Pages and point GitHub Pages at the `guardian-memory` branch. The dashboard becomes publicly viewable at `https://<org>.github.io/<repo>/dashboard.html`.
 
@@ -34,23 +34,16 @@ Nothing is written to `main`. If the workflow fails, `main` is unaffected.
 - [`examples/sample-constitution.md`](examples/sample-constitution.md) — a complete Constitution for a fictional LLM pipeline project.
 - [`examples/sample-dashboard.html`](examples/sample-dashboard.html) — a rendered dashboard showing all four chart types populated with sample data.
 
-## Slash commands
+## Autonomous operation
 
-| Command | Purpose |
-|---|---|
-| `/init-guardian` | First-time setup: guided interview produces `constitution.md` on the `guardian-memory` branch |
-| `/re-anchor` | Refresh or refocus the Constitution; shows current values and asks what changed |
-| `/amend [principle]` | Modify a specific tenet; accepts replacement text + rationale; logs the amendment |
-| `/chronicle` | View project history — full, by-saga, by-date-range, or drift-only |
-| `/dashboard` | Trigger a full dashboard regeneration and post the Pages link |
-| `/status` | Quick health check: active sagas, open debt timers, last interview, drift trend |
+NorthStarGuardian has no ongoing slash-command interface. After the initial local North Star interview, it operates agent-side only: pull request events trigger the interview, PR comments carry the advisory output, and all journal/dashboard state is written to `guardian-memory`. Humans should not need to summon it, steer it, or manage it from issue comments.
 
 ## Configuration
 
-Runtime configuration lives at `meta/guardian-config.json` on the `guardian-memory` branch (created by `/init-guardian` with defaults). Edit it directly on that branch to change behavior.
+Runtime configuration lives at `meta/guardian-config.json` on the `guardian-memory` branch. Edit it directly on that branch to change behavior.
 
 **`enable_blocking_escalation` — defaults to `false`.**
-The spec (§5) defines three escalation levels for unresolved variance debt, the third of which blocks future PRs touching the same area. This flag is off by default because the North Star anti-goal — "the Guardian must never become an authority" — supersedes that escalation. The debt machinery still runs and records expired timers; only the merge-block side effect is gated. Operators can opt in per repo by setting this to `true`.
+The North Star anti-goal — "the Guardian must never become an authority" — supersedes any debt escalation machinery. The debt sweep can raise the prominence of unresolved variance debt in memory and future PR interviews, but merge-blocking behavior is disabled by default and should remain opt-in only for repositories that deliberately want a stricter policy.
 
 Other fields:
 
@@ -58,7 +51,7 @@ Other fields:
 |---|---|---|
 | `memory_branch` | `"guardian-memory"` | Name of the orphan branch where all Guardian state is stored |
 | `anthropic_model_analysis` | `"claude-sonnet-4-6"` | Model used for PR diff analysis and interview generation |
-| `anthropic_model_initialization` | `"claude-opus-4-7"` | Model used for Constitution authoring (`/init-guardian`, `/re-anchor`) |
+| `anthropic_model_initialization` | `"claude-opus-4-7"` | Model reserved for Constitution authoring and future North Star refresh flows |
 | `variance_default_days` | `7` | Default debt-timer duration when a `[VARIANCE]` tag omits an expiry |
 | `pages_url` | `null` | GitHub Pages URL for the dashboard; posted in comment footers when set |
 
@@ -72,10 +65,10 @@ guardian/
   chronicle.py      # journal entries + saga registry
   governance.py     # drift ledger, variance protocol, debt timers
   dashboard.py      # Mermaid charts -> self-contained dashboard.html
-  cli.py            # entry point for CI and slash commands
+  cli.py            # entry point for CI, local setup, and local dashboard preview
   templates/        # constitution skeleton, dashboard HTML, prompts
 .github/workflows/
-  guardian.yml      # PR interview + comment-triggered slash commands
+  guardian.yml      # autonomous PR interview workflow
   guardian-debt.yml # scheduled debt-timer sweeps
 tests/
 docs/SPEC.md

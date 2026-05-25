@@ -1,4 +1,4 @@
-"""Tests for guardian.cli — parse_slash_command and CLI subcommands.
+"""Tests for guardian.cli — autonomous PR interview and local subcommands.
 
 Uses Click's CliRunner so no real processes are spawned.  All external
 dependencies (GitHub, Anthropic, MemoryStore) are mocked at the boundary.
@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
-from guardian.cli import cli, parse_slash_command
+from guardian.cli import cli
 from guardian.models import (
     Constitution,
     DiffAnalysis,
@@ -25,78 +25,6 @@ from guardian.models import (
     Principle,
     Verdict,
 )
-
-# ---------------------------------------------------------------------------
-# parse_slash_command
-# ---------------------------------------------------------------------------
-
-
-class TestParseSlashCommand:
-    def test_simple_command(self) -> None:
-        result = parse_slash_command("/init-guardian")
-        assert result is not None
-        cmd, args = result
-        assert cmd == "init-guardian"
-        assert args == []
-
-    def test_command_with_single_arg(self) -> None:
-        result = parse_slash_command("/amend principle-3")
-        assert result is not None
-        cmd, args = result
-        assert cmd == "amend"
-        assert args == ["principle-3"]
-
-    def test_command_with_quoted_second_arg(self) -> None:
-        result = parse_slash_command('/amend principle-3 "new text here"')
-        assert result is not None
-        cmd, args = result
-        assert cmd == "amend"
-        assert args == ["principle-3", "new text here"]
-
-    def test_command_with_unquoted_rest(self) -> None:
-        result = parse_slash_command("/amend principle-3 new text")
-        assert result is not None
-        cmd, args = result
-        assert cmd == "amend"
-        # Unquoted: first word + rest as second token
-        assert args[0] == "principle-3"
-        assert args[1] == "new text"
-
-    def test_re_anchor(self) -> None:
-        result = parse_slash_command("/re-anchor")
-        assert result is not None
-        assert result[0] == "re-anchor"
-        assert result[1] == []
-
-    def test_chronicle(self) -> None:
-        result = parse_slash_command("/chronicle")
-        assert result is not None
-        assert result[0] == "chronicle"
-
-    def test_dashboard(self) -> None:
-        result = parse_slash_command("/dashboard")
-        assert result is not None
-        assert result[0] == "dashboard"
-
-    def test_status(self) -> None:
-        result = parse_slash_command("/status")
-        assert result is not None
-        assert result[0] == "status"
-
-    def test_non_slash_comment_returns_none(self) -> None:
-        assert parse_slash_command("not a command") is None
-
-    def test_empty_string_returns_none(self) -> None:
-        assert parse_slash_command("") is None
-
-    def test_plain_text_with_slash_in_middle_returns_none(self) -> None:
-        assert parse_slash_command("hello /not-a-command") is None
-
-    def test_leading_whitespace_is_stripped(self) -> None:
-        result = parse_slash_command("  /status  ")
-        assert result is not None
-        assert result[0] == "status"
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -287,8 +215,8 @@ class TestInterview:
             with (
                 patch.object(analyze_mod, "analyze_diff", return_value=mock_diff_analysis),
                 patch.object(analyze_mod, "run_interview", return_value=report),
-                patch.object(chronicle_mod, "_load_saga_index", return_value={"sagas": []}),
-                patch.object(chronicle_mod, "_saga_from_index_entry", return_value=mock_saga),
+                patch.object(chronicle_mod, "load_saga_index", return_value={"sagas": []}),
+                patch.object(chronicle_mod, "saga_from_index_entry", return_value=mock_saga),
                 patch.object(chronicle_mod, "assign_saga", return_value=mock_saga),
                 patch.object(chronicle_mod, "update_saga", return_value=mock_saga),
                 patch.object(chronicle_mod, "write_journal_entry"),
@@ -306,6 +234,25 @@ class TestInterview:
         comment_body = mock_post.call_args[0][1]
         assert "42" in comment_body
 
+    def test_interview_skips_without_anthropic_key(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+
+        mock_store = MagicMock()
+        mock_store.exists.return_value = False
+
+        with (
+            patch("guardian.cli.MemoryStore", return_value=mock_store),
+            patch("guardian.cli._load_config", return_value=GuardianConfig()),
+        ):
+            result = runner.invoke(
+                cli,
+                ["interview", "--repo-root", str(tmp_path)],
+                env={"ANTHROPIC_API_KEY": ""},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "skipping autonomous PR interview" in result.output
+
     def test_interview_fails_without_pr(self, tmp_path: Path) -> None:
         runner = CliRunner()
 
@@ -321,7 +268,7 @@ class TestInterview:
         env = {
             "GITHUB_TOKEN": "test-token",
             "GITHUB_REPOSITORY": "test/repo",
-            "GITHUB_EVENT_NAME": "issue_comment",
+            "GITHUB_EVENT_NAME": "pull_request",
             "ANTHROPIC_API_KEY": "test-key",
         }
 

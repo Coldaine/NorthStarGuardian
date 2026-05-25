@@ -242,9 +242,9 @@ The Guardian supports intentional deviation. It is not a tyrant.
   `[VARIANCE: Principle 3 — hotfix for production outage, will revert within 7 days]`
 - **Debt Timers**: Every variance creates a timed obligation. The Guardian tracks these and escalates if unresolved.
 - **Escalation Levels**:
-  1. Neutral reminder at 75% of timer
-  2. Firm reminder at expiration
-   3. Records unresolved debt prominently for future PR interviews that touch the same area
+   - Neutral reminder at 75% of timer
+   - Firm reminder at expiration
+   - Records unresolved debt prominently for future PR interviews that touch the same area
 
 ---
 

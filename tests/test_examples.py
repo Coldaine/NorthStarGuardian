@@ -15,7 +15,7 @@ from guardian.models import AntiPattern, NorthStar, Principle
 from guardian.north_star import parse_north_star_markdown
 
 _EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
-_NORTH_STAR_FILE = _EXAMPLES_DIR / "sample-north-star.md"
+_NORTH_STAR_FILE = _EXAMPLES_DIR / "sample-northstar.md"
 _DASHBOARD_FILE = _EXAMPLES_DIR / "sample-dashboard.html"
 
 
@@ -154,13 +154,13 @@ def _seed_store() -> tuple[_FakeStore, NorthStar]:
             "description": "Implementing source citation linking for all user-facing responses.",
         },
     ]
-    store.write_json("sagas/_index.json", {"sagas": sagas})
+    store.write_json("memory/sagas/_index.json", {"sagas": sagas})
 
     # -- Journal entries -----------------------------------------------------
     journal_entries = [
         # PR 1 — aligned
         (
-            "journal/2026-02-01-pr-1.md",
+            "memory/journal/2026-02-01-pr-1.md",
             "\n".join([
                 "---",
                 "pr_number: 1",
@@ -191,7 +191,7 @@ def _seed_store() -> tuple[_FakeStore, NorthStar]:
         ),
         # PR 17 — ambiguous
         (
-            "journal/2026-02-16-pr-17.md",
+            "memory/journal/2026-02-16-pr-17.md",
             "\n".join([
                 "---",
                 "pr_number: 17",
@@ -220,7 +220,7 @@ def _seed_store() -> tuple[_FakeStore, NorthStar]:
         ),
         # PR 22 — drift
         (
-            "journal/2026-02-21-pr-22.md",
+            "memory/journal/2026-02-21-pr-22.md",
             "\n".join([
                 "---",
                 "pr_number: 22",
@@ -261,7 +261,7 @@ def _seed_store() -> tuple[_FakeStore, NorthStar]:
             "timestamp": _dt(20).isoformat(),
         }
     ]
-    store.write_json("drift-ledger.json", {"events": drift_events})
+    store.write_json("memory/drift-ledger.json", {"events": drift_events})
 
     return store, north_star
 

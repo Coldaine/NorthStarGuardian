@@ -20,5 +20,6 @@ htmlcov/
 .vscode/
 *.swp
 .DS_Store
-.omc/
-guardian-memory-worktree/
+.omc/state/
+.omc/logs/
+.omc/sessions/

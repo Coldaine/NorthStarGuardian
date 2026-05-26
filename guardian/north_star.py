@@ -1,15 +1,17 @@
 """North Star tools for NorthStarGuardian.
 
-Provides read/write/amend operations for the project North Star stored on
-the ``guardian-memory`` orphan branch, plus the amendment log.
+Provides read/write/amend operations for Guardian's active copy of the
+project North Star, stored under ``.github/guardian``.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import subprocess
 import textwrap
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from jinja2 import Environment, PackageLoader
@@ -17,9 +19,10 @@ from jinja2 import Environment, PackageLoader
 from guardian.memory import MemoryStore
 from guardian.models import Amendment, AntiPattern, NorthStar, Principle
 
-# Paths on the guardian-memory branch.
-_NORTH_STAR_PATH = "north-star.md"
-_AMENDMENT_LOG_PATH = "meta/amendment-log.md"
+# Paths inside .github/guardian.
+_NORTH_STAR_PATH = "northstar.md"
+_AMENDMENT_LOG_PATH = "memory/amendment-log.md"
+_REPO_NORTH_STAR_PATH = "docs/northstar.md"
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +36,7 @@ def parse_north_star_markdown(text: str) -> NorthStar:
     """Parse a North Star from its Markdown+YAML-frontmatter representation."""
     m = _FRONTMATTER_RE.match(text)
     if not m:
-        raise ValueError("north-star.md is missing YAML frontmatter")
+        raise ValueError("northstar.md is missing YAML frontmatter")
 
     raw: dict[str, Any] = json.loads(m.group(1)) or {}
 
@@ -150,7 +153,7 @@ def render_north_star_markdown(c: NorthStar) -> str:
 # ---------------------------------------------------------------------------
 
 def read_north_star(store: MemoryStore) -> NorthStar:
-    """Read and parse the North Star from the memory branch."""
+    """Read and parse Guardian's active North Star copy."""
     text = store.read(_NORTH_STAR_PATH)
     return parse_north_star_markdown(text)
 
@@ -160,8 +163,78 @@ def write_north_star(
     c: NorthStar,
     rationale: str = "initial",
 ) -> None:
-    """Serialise and write *c* to the memory branch (stages; does not commit)."""
+    """Serialise and write *c* to Guardian's active copy."""
     store.write(_NORTH_STAR_PATH, render_north_star_markdown(c), message=rationale)
+
+
+# ---------------------------------------------------------------------------
+# Repo source-of-truth I/O
+# ---------------------------------------------------------------------------
+
+def _resolve_repo_path(repo_root: Path, path: str) -> Path:
+    relative = Path(path)
+    if relative.is_absolute():
+        raise ValueError("Repo North Star path must be relative")
+    root = repo_root.resolve()
+    full = (root / relative).resolve()
+    if full != root and root not in full.parents:
+        raise ValueError(f"Path '{path}' escapes outside repository")
+    return full
+
+
+def read_repo_north_star_markdown(
+    repo_root: Path,
+    path: str = _REPO_NORTH_STAR_PATH,
+    *,
+    ref: str | None = None,
+) -> str:
+    """Read the repo-authored North Star Markdown.
+
+    When *ref* is provided, the file is read from that git object instead of
+    the current working tree.  PR review uses this to evaluate against the base
+    branch policy rather than a PR's modified policy.
+    """
+    if ref:
+        result = subprocess.run(
+            ["git", "show", f"{ref}:{path}"],
+            cwd=str(repo_root),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise FileNotFoundError(
+                f"{path} was not found at git ref {ref}: {result.stderr.strip()}"
+            )
+        return result.stdout
+
+    full = _resolve_repo_path(repo_root, path)
+    if not full.exists():
+        raise FileNotFoundError(f"{path} does not exist")
+    return full.read_text(encoding="utf-8")
+
+
+def read_repo_north_star(
+    repo_root: Path,
+    path: str = _REPO_NORTH_STAR_PATH,
+    *,
+    ref: str | None = None,
+) -> NorthStar:
+    """Read and parse the repo-authored North Star."""
+    return parse_north_star_markdown(
+        read_repo_north_star_markdown(repo_root, path=path, ref=ref)
+    )
+
+
+def write_repo_north_star(
+    repo_root: Path,
+    c: NorthStar,
+    path: str = _REPO_NORTH_STAR_PATH,
+) -> None:
+    """Write the human-facing repo North Star to ``docs/northstar.md``."""
+    full = _resolve_repo_path(repo_root, path)
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_text(render_north_star_markdown(c), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -350,5 +423,5 @@ def render_north_star_template(answers: dict[str, Any]) -> str:
         trim_blocks=True,
         lstrip_blocks=True,
     )
-    template = env.get_template("north-star.md.j2")
+    template = env.get_template("northstar.md.j2")
     return template.render(**answers)

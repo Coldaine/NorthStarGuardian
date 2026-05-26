@@ -6,7 +6,6 @@ MemoryStore (tmp_path git repo + bare local remote) with a mocked LLM client.
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -20,30 +19,11 @@ from guardian.memory import MemoryStore
 from guardian.north_star import initialize_north_star, write_north_star
 
 
-def _git(args: list[str], cwd: Path) -> str:
-    result = subprocess.run(
-        ["git", *args], cwd=str(cwd), check=True, capture_output=True, text=True,
-    )
-    return result.stdout.strip()
-
-
-def _make_repo_with_remote(tmp_path: Path) -> tuple[Path, Path]:
-    """Working repo wired to a local bare remote so commit_and_push succeeds."""
-    bare = tmp_path / "remote.git"
-    bare.mkdir()
-    _git(["init", "--bare", "-b", "main"], cwd=bare)
-
+def _make_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
-    _git(["init", "-b", "main"], cwd=repo)
-    _git(["config", "user.email", "test@example.com"], cwd=repo)
-    _git(["config", "user.name", "Test"], cwd=repo)
-    (repo / "README.md").write_text("# test repo\n")
-    _git(["add", "README.md"], cwd=repo)
-    _git(["commit", "-m", "initial commit"], cwd=repo)
-    _git(["remote", "add", "origin", str(bare)], cwd=repo)
-    _git(["push", "-u", "origin", "main"], cwd=repo)
-    return repo, bare
+    (repo / "README.md").write_text("# test repo\n", encoding="utf-8")
+    return repo
 
 
 # 2 context + 1 removed + 2 added → @@ -1,3 +1,4 @@
@@ -114,8 +94,8 @@ def _build_mock_client(principle_ids: list[str], verdict: str = "aligned") -> Ma
 
 @pytest.fixture()
 def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
-    """Real git repo with a bare remote and a seeded guardian-memory branch."""
-    repo, _bare = _make_repo_with_remote(tmp_path)
+    """Real filesystem-backed Guardian store seeded with an active North Star."""
+    repo = _make_repo(tmp_path)
     store = MemoryStore(repo)
     store.ensure_initialized()
 
@@ -148,7 +128,6 @@ def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
         actor="test-setup",
     )
     write_north_star(store, north_star, rationale="Initial North Star for E2E test")
-    store.commit_and_push("chore: seed North Star for E2E test", push=True)
 
     return repo, store
 
@@ -197,7 +176,7 @@ def test_full_pr_interview_cycle(
     html = render_dashboard(store, north_star)
     assert html
 
-    journal_files = store.list("journal/")
+    journal_files = store.list("memory/journal/")
     assert journal_files, "no journal files materialised"
     raw_journal = store.read(journal_files[0])
     parts = raw_journal.split("---", 2)
@@ -211,12 +190,12 @@ def test_full_pr_interview_cycle(
         assert expected in fm, f"frontmatter missing {expected}: {fm}"
     assert int(fm["pr_number"]) == 42
 
-    assert store.exists("sagas/_index.json")
-    saga_index = store.read_json("sagas/_index.json")
+    assert store.exists("memory/sagas/_index.json")
+    saga_index = store.read_json("memory/sagas/_index.json")
     assert saga.id in [s["id"] for s in saga_index["sagas"]]
 
-    assert store.exists("dashboard.html")
-    dashboard_content = store.read("dashboard.html")
+    assert store.exists("memory/dashboard.html")
+    dashboard_content = store.read("memory/dashboard.html")
     assert "cdn.jsdelivr.net" in dashboard_content
     for directive in ("gantt", "gitGraph", "quadrantChart", "mindmap"):
         assert directive in dashboard_content, f"chart directive {directive!r} missing"

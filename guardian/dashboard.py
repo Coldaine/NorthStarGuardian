@@ -9,13 +9,12 @@ Implements the five Visualization Tools from spec §7.4:
 
 All generate_* functions return raw Mermaid source strings with no HTML
 wrapping. render_dashboard embeds them into dashboard.html.j2 and writes the
-result to the orphan branch via store.write().
+result to ``memory/dashboard.html`` via store.write().
 """
 
 from __future__ import annotations
 
 import re
-import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -33,12 +32,12 @@ from guardian.models import (
     Verdict,
 )
 
-_TEMPLATE_DIR = Path(__file__).parent / "templates"
+_TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
 def _jinja_env() -> Environment:
     return Environment(
-        loader=FileSystemLoader(str(_TEMPLATE_DIR)),
+        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
         autoescape=False,
         keep_trailing_newline=True,
     )
@@ -191,7 +190,7 @@ def generate_quadrant(
       ambiguous → middle    (0.50), middle   (0.50)
       drift     → low value (0.25), high debt (0.75)
 
-    Points are jittered with a small deterministic hash to avoid perfect overlap.
+    Points are jittered slightly by PR number mod to avoid perfect overlap.
     """
     lines: list[str] = [
         "quadrantChart",
@@ -216,7 +215,7 @@ def generate_quadrant(
     for entry in journal:
         debt_base, value_base = _VERDICT_SCORES[entry.verdict]
         # Small jitter from pr_number so overlapping verdicts spread out
-        jitter = ((entry.pr_number * 17 + 31) % 13) * 0.015 - 0.09
+        jitter = (entry.pr_number % 7) * 0.03 - 0.09
         debt = round(max(0.05, min(0.95, debt_base + jitter)), 2)
         value = round(max(0.05, min(0.95, value_base - jitter)), 2)
         label = f"PR#{entry.pr_number}"
@@ -294,7 +293,7 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
 
     Reads all chronicle data from *store*, generates each Mermaid chart,
     embeds everything into ``dashboard.html.j2``, writes the result to
-    ``dashboard.html`` on the orphan branch, and returns the HTML string.
+    ``memory/dashboard.html``, and returns the HTML string.
     """
     journal = read_chronicle(store)
     drift_events = _load_drift_events(store)
@@ -320,7 +319,7 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
         generated_at=generated_at,
     )
 
-    store.write("dashboard.html", html)
+    store.write("memory/dashboard.html", html)
     return html
 
 
@@ -331,38 +330,29 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
 def _load_all_sagas(store: MemoryStore) -> list[Saga]:
     """Load all sagas from the saga index."""
     from guardian.chronicle import (  # local import to avoid circular
-        load_saga_index,
-        saga_from_index_entry,
+        _load_saga_index,
+        _saga_from_index_entry,
     )
 
-    index = load_saga_index(store)
+    index = _load_saga_index(store)
     sagas: list[Saga] = []
     for entry in index.get("sagas", []):
         try:
-            sagas.append(saga_from_index_entry(entry))
+            sagas.append(_saga_from_index_entry(entry))
         except (KeyError, ValueError):
             continue
     return sagas
 
 
 def _load_drift_events(store: MemoryStore) -> list[DriftEvent]:
-    """Load drift events from drift-ledger.json, returning [] if absent."""
-    if not store.exists("drift-ledger.json"):
+    """Load drift events from memory/drift-ledger.json, returning [] if absent."""
+    if not store.exists("memory/drift-ledger.json"):
         return []
     try:
-        raw = store.read_json("drift-ledger.json")
-        if raw is None:
-            return []
-        if isinstance(raw, dict):
-            raw_events = raw.get("events", [])
-        elif isinstance(raw, list):
-            raw_events = raw
-        else:
-            return []
+        raw = store.read_json("memory/drift-ledger.json")
         events: list[DriftEvent] = []
-        for item in raw_events:
+        for item in raw.get("events", []):
             events.append(DriftEvent(**item))
         return events
-    except (ValueError, KeyError, TypeError, AttributeError) as exc:
-        warnings.warn(f"drift-ledger.json is corrupt: {exc}", stacklevel=2)
+    except (ValueError, KeyError):
         return []

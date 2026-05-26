@@ -15,9 +15,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import anthropic
 from jinja2 import Environment, FileSystemLoader
 
-from guardian.llm import LLMClient
+from guardian.memory import MemoryStore
 from guardian.models import (
     IntentSummary,
     InterviewReport,
@@ -32,12 +33,12 @@ from guardian.models import (
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-_TEMPLATE_DIR = Path(__file__).parent / "templates" / "prompts"
+_TEMPLATES_DIR = Path(__file__).parent / "templates" / "prompts"
 
 
 def _jinja_env() -> Environment:
     env = Environment(
-        loader=FileSystemLoader(str(_TEMPLATE_DIR)),
+        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
         autoescape=False,
         keep_trailing_newline=True,
     )
@@ -136,18 +137,18 @@ def _compose_journal_markdown(
     return "\n".join(lines)
 
 
-def load_saga_index(store: Any) -> dict[str, Any]:
+def _load_saga_index(store: MemoryStore) -> dict[str, Any]:
     """Return the saga index dict, creating an empty one if absent."""
-    if store.exists("sagas/_index.json"):
-        return store.read_json("sagas/_index.json")
+    if store.exists("memory/sagas/_index.json"):
+        return store.read_json("memory/sagas/_index.json")
     return {"sagas": []}
 
 
-def _save_saga_index(store: Any, index: dict[str, Any]) -> None:
-    store.write_json("sagas/_index.json", index)
+def _save_saga_index(store: MemoryStore, index: dict[str, Any]) -> None:
+    store.write_json("memory/sagas/_index.json", index)
 
 
-def saga_from_index_entry(entry: dict[str, Any]) -> Saga:
+def _saga_from_index_entry(entry: dict[str, Any]) -> Saga:
     """Reconstruct a Saga from a stored index entry or saga-file frontmatter dict."""
     return Saga(
         id=entry["id"],
@@ -158,11 +159,6 @@ def saga_from_index_entry(entry: dict[str, Any]) -> Saga:
         pr_numbers=entry.get("pr_numbers", []),
         description=entry.get("description", ""),
     )
-
-
-# Backward-compat aliases
-_load_saga_index = load_saga_index
-_saga_from_index_entry = saga_from_index_entry
 
 
 def _saga_to_frontmatter(saga: Saga) -> str:
@@ -188,9 +184,9 @@ def _saga_to_frontmatter(saga: Saga) -> str:
     return "\n".join(lines)
 
 
-def _load_saga_from_store(store: Any, saga_id: str) -> Saga:
+def _load_saga_from_store(store: MemoryStore, saga_id: str) -> Saga:
     """Read and parse a saga file from the store."""
-    raw = store.read(f"sagas/{saga_id}.md")
+    raw = store.read(f"memory/sagas/{saga_id}.md")
     # Parse YAML frontmatter between --- delimiters
     parts = raw.split("---", 2)
     if len(parts) < 3:
@@ -222,7 +218,7 @@ def _load_saga_from_store(store: Any, saga_id: str) -> Saga:
     )
 
 
-def _load_journal_entry(store: Any, path: str) -> JournalEntry | None:
+def _load_journal_entry(store: MemoryStore, path: str) -> JournalEntry | None:
     """Parse a journal file and return a JournalEntry, or None on parse failure."""
     try:
         raw = store.read(path)
@@ -257,17 +253,17 @@ def _load_journal_entry(store: Any, path: str) -> JournalEntry | None:
 
 
 def write_journal_entry(
-    store: Any,
+    store: MemoryStore,
     report: InterviewReport,
     saga: Saga | None,
 ) -> JournalEntry:
     """Compose and persist a narrative journal entry for *report*.
 
-    The file is written to ``journal/YYYY-MM-DD-pr-NN.md``.
+    The file is written to ``memory/journal/YYYY-MM-DD-pr-NN.md``.
     Returns the created :class:`JournalEntry`.
     """
     date_str = report.created_at.strftime("%Y-%m-%d")
-    filename = f"journal/{date_str}-pr-{report.pr_number}.md"
+    filename = f"memory/journal/{date_str}-pr-{report.pr_number}.md"
     body = _compose_journal_markdown(report, saga)
     store.write(filename, body)
 
@@ -281,14 +277,14 @@ def write_journal_entry(
 
 
 def assign_saga(
-    store: Any,
+    store: MemoryStore,
     intent: IntentSummary,
     existing_sagas: list[Saga],
     *,
-    client: LLMClient,
+    client: anthropic.Anthropic,
     model: str,
 ) -> Saga:
-    """Use the configured LLM to assign *intent* to an existing saga or create a new one.
+    """Use the Anthropic API to assign *intent* to an existing saga or create a new one.
 
     Returns the matched or newly created :class:`Saga`. New sagas are persisted
     immediately (file + index update). Matched sagas are returned as-is; the
@@ -300,16 +296,12 @@ def assign_saga(
     template = env.get_template("assign_saga.md.j2")
     prompt = template.render(intent=intent, active_sagas=active_sagas)
 
-    response_text = client.generate(
-        system=(
-            "You are the Repository Guardian. Return exactly one saga decision: "
-            "MATCH: <saga-id> or CREATE: <saga name>."
-        ),
-        user=prompt,
+    message = client.messages.create(
         model=model,
         max_tokens=256,
+        messages=[{"role": "user", "content": prompt}],
     )
-    response_text = response_text.strip()
+    response_text = message.content[0].text.strip()
 
     # Parse LLM response
     if response_text.startswith("MATCH:"):
@@ -345,10 +337,10 @@ def assign_saga(
     )
 
     # Persist the new saga file
-    store.write(f"sagas/{unique_slug}.md", _saga_to_frontmatter(new_saga))
+    store.write(f"memory/sagas/{unique_slug}.md", _saga_to_frontmatter(new_saga))
 
     # Update index
-    index = load_saga_index(store)
+    index = _load_saga_index(store)
     index["sagas"].append(
         {
             "id": new_saga.id,
@@ -365,7 +357,7 @@ def assign_saga(
     return new_saga
 
 
-def update_saga(store: Any, saga: Saga, pr_number: int) -> Saga:
+def update_saga(store: MemoryStore, saga: Saga, pr_number: int) -> Saga:
     """Append *pr_number* to *saga* and persist the updated saga file.
 
     Returns the updated :class:`Saga`. If *pr_number* is already in
@@ -385,10 +377,10 @@ def update_saga(store: Any, saga: Saga, pr_number: int) -> Saga:
     )
 
     # Persist saga file
-    store.write(f"sagas/{updated.id}.md", _saga_to_frontmatter(updated))
+    store.write(f"memory/sagas/{updated.id}.md", _saga_to_frontmatter(updated))
 
     # Update index entry
-    index = load_saga_index(store)
+    index = _load_saga_index(store)
     for entry in index["sagas"]:
         if entry["id"] == updated.id:
             entry["pr_numbers"] = updated.pr_numbers
@@ -412,7 +404,7 @@ def update_saga(store: Any, saga: Saga, pr_number: int) -> Saga:
 
 
 def read_chronicle(
-    store: Any,
+    store: MemoryStore,
     *,
     since: datetime | None = None,
     saga_id: str | None = None,
@@ -429,7 +421,7 @@ def read_chronicle(
     drift_only:
         If True, only return entries with ``verdict == Verdict.DRIFT``.
     """
-    paths = store.list("journal")
+    paths = store.list("memory/journal")
     entries: list[JournalEntry] = []
 
     for path in sorted(paths):

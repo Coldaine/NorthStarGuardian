@@ -1,7 +1,7 @@
 """Tests for guardian.chronicle.
 
 Uses a FakeStore that avoids any git subprocess calls.
-The AnthropicClient is mocked for assign_saga tests.
+The OpenAI client is mocked for assign_saga tests.
 """
 
 from __future__ import annotations
@@ -202,13 +202,15 @@ class TestWriteJournalEntry:
 
 class TestAssignSaga:
     def _make_client(self, response_text: str) -> MagicMock:
-        """Return a mock Anthropic client that returns *response_text*."""
+        """Return a mock OpenAI client whose chat.completions.create returns *response_text*."""
         content_block = MagicMock()
-        content_block.text = response_text
+        content_block.content = response_text
+        choice = MagicMock()
+        choice.message = content_block
         message = MagicMock()
-        message.content = [content_block]
+        message.choices = [choice]
         client = MagicMock()
-        client.messages.create.return_value = message
+        client.chat.completions.create.return_value = message
         return client
 
     def test_match_existing_saga(self) -> None:

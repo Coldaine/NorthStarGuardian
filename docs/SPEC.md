@@ -107,7 +107,7 @@ Important fields:
 - `linear.document_id`: Linear document for canonical policy
 - `linear.team_id`: Linear team for created follow-up issues
 - `linear.project_id`: optional Linear project for created follow-up issues
-- `anthropic_model_analysis`: model for review prompts
+- `openai_model_analysis`: model for review prompts
 - `variance_default_days`: default duration for declared variance debt
 - `enable_blocking_escalation`: defaults to `false`
 - `pages_url`: optional direct dashboard URL

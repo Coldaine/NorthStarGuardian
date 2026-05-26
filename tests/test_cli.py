@@ -1,7 +1,7 @@
 """Tests for guardian.cli — parse_slash_command and CLI subcommands.
 
 Uses Click's CliRunner so no real processes are spawned.  All external
-dependencies (GitHub, Anthropic, MemoryStore) are mocked at the boundary.
+dependencies (GitHub, OpenAI, MemoryStore) are mocked at the boundary.
 """
 
 from __future__ import annotations
@@ -378,7 +378,7 @@ class TestInterview:
             "GITHUB_TOKEN": "test-token",
             "GITHUB_REPOSITORY": "test/repo",
             "GITHUB_EVENT_NAME": "pull_request",
-            "ANTHROPIC_API_KEY": "test-key",
+            "OPENAI_API_KEY": "test-key",
         }
 
         with (
@@ -387,7 +387,7 @@ class TestInterview:
             patch("guardian.cli.get_pr_diff", return_value="diff --git ..."),
             patch("guardian.cli.get_pr_meta", return_value={"number": 42, "title": "Add feature", "body": "", "author": "dev", "base_sha": "abc", "head_sha": "def"}),
             patch("guardian.cli._load_review_north_star", return_value=north_star),
-            patch("guardian.cli._make_anthropic_client", return_value=MagicMock()),
+            patch("guardian.cli._make_openai_client", return_value=MagicMock()),
             patch("guardian.cli._load_config", return_value=GuardianConfig()),
             patch("guardian.cli.post_pr_comment") as mock_post,
         ):
@@ -439,13 +439,13 @@ class TestInterview:
             "GITHUB_TOKEN": "test-token",
             "GITHUB_REPOSITORY": "test/repo",
             "GITHUB_EVENT_NAME": "issue_comment",
-            "ANTHROPIC_API_KEY": "test-key",
+            "OPENAI_API_KEY": "test-key",
         }
 
         with (
             patch("guardian.cli.MemoryStore", return_value=mock_store),
             patch("guardian.cli.GitHubContext") as mock_ctx_cls,
-            patch("guardian.cli._make_anthropic_client", return_value=MagicMock()),
+            patch("guardian.cli._make_openai_client", return_value=MagicMock()),
             patch("guardian.cli._load_config", return_value=GuardianConfig()),
         ):
             mock_ctx_cls.from_env.return_value = mock_ctx

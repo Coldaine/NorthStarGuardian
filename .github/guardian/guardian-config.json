@@ -11,8 +11,8 @@
     "project_id": null,
     "initiative_id": null
   },
-  "anthropic_model_analysis": "claude-sonnet-4-6",
-  "anthropic_model_initialization": "claude-opus-4-7",
+  "openai_model_analysis": "gpt-5",
+  "openai_model_initialization": "gpt-5",
   "enable_blocking_escalation": false,
   "variance_default_days": 7,
   "pages_url": null

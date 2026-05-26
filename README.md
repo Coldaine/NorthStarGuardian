@@ -6,12 +6,12 @@ The Guardian runs on pull requests. It reads the repo North Star, evaluates the 
 
 ## Status
 
-Pre-alpha. The core pipeline is covered by tests against synthetic PR fixtures: diff analysis, Claude-backed interview generation, PR commenting, Linear-backed policy snapshots, repo-native Guardian memory, chronicle entries, and dashboard rendering.
+Pre-alpha. The core pipeline is covered by tests against synthetic PR fixtures: diff analysis, OpenAI-backed interview generation, PR commenting, Linear-backed policy snapshots, repo-native Guardian memory, chronicle entries, and dashboard rendering.
 
 ## Quickstart
 
 1. **Copy the workflow** - copy `examples/consumer-workflow.yml` into `.github/workflows/guardian.yml` in your target repo and commit it to `main`.
-2. **Add secrets** - add `ANTHROPIC_API_KEY`. If Linear is the canonical policy surface, also add `LINEAR_API_KEY`.
+2. **Add secrets** - add `OPENAI_API_KEY`. If Linear is the canonical policy surface, also add `LINEAR_API_KEY`.
 3. **Author the North Star** - keep the repo-visible policy at `docs/northstar.md`. You can run `guardian init-local` to create both `docs/northstar.md` and `.github/guardian/northstar.md`.
 4. **Configure Guardian** - edit `.github/guardian/guardian-config.json`. Use `north_star.source = "repo"` for repo-backed policy, or `"linear"` with `linear.document_id` and `linear.team_id` for Linear-backed policy.
 
@@ -64,7 +64,7 @@ Runtime configuration lives at `.github/guardian/guardian-config.json`.
 | `linear.document_id` | `null` | Linear document ID used when `north_star.source` is `"linear"` |
 | `linear.team_id` | `null` | Linear team ID for Guardian-created follow-up issues |
 | `linear.project_id` | `null` | Optional Linear project for Guardian-created issues |
-| `anthropic_model_analysis` | `"claude-sonnet-4-6"` | Model used for PR diff analysis and interview generation |
+| `openai_model_analysis` | `"gpt-5"` | Model used for PR diff analysis and interview generation |
 | `variance_default_days` | `7` | Default debt-timer duration when a `[VARIANCE]` tag omits an expiry |
 | `pages_url` | `null` | Optional direct dashboard URL posted in comments |
 

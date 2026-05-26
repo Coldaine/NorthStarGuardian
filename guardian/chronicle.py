@@ -15,7 +15,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import anthropic
 from jinja2 import Environment, FileSystemLoader
 
 from guardian.memory import MemoryStore
@@ -283,10 +282,10 @@ def assign_saga(
     intent: IntentSummary,
     existing_sagas: list[Saga],
     *,
-    client: anthropic.Anthropic,
+    client: Any,
     model: str,
 ) -> Saga:
-    """Use the Anthropic API to assign *intent* to an existing saga or create a new one.
+    """Use the OpenAI API to assign *intent* to an existing saga or create a new one.
 
     Returns the matched or newly created :class:`Saga`. New sagas are persisted
     immediately (file + index update). Matched sagas are returned as-is; the
@@ -298,12 +297,12 @@ def assign_saga(
     template = env.get_template("assign_saga.md.j2")
     prompt = template.render(intent=intent, active_sagas=active_sagas)
 
-    message = client.messages.create(
+    message = client.chat.completions.create(
         model=model,
         max_tokens=256,
         messages=[{"role": "user", "content": prompt}],
     )
-    response_text = message.content[0].text.strip()
+    response_text = message.choices[0].message.content.strip()
 
     # Parse LLM response
     if response_text.startswith("MATCH:"):

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import click
-from anthropic import Anthropic
+from openai import OpenAI
 
 from guardian.github_io import GitHubContext, get_pr_diff, get_pr_meta, post_pr_comment
 from guardian.memory import MemoryStore
@@ -136,14 +136,14 @@ def _create_linear_amendment_issue(
     )
 
 
-def _make_anthropic_client() -> Anthropic:
-    """Construct an Anthropic client from the environment."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+def _make_openai_client() -> OpenAI:
+    """Construct an OpenAI client from the environment."""
+    api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise click.ClickException(
-            "ANTHROPIC_API_KEY environment variable is not set."
+            "OPENAI_API_KEY environment variable is not set."
         )
-    return Anthropic(api_key=api_key)
+    return OpenAI(api_key=api_key)
 
 
 def _make_store(repo_root: Path | None = None) -> MemoryStore:
@@ -283,7 +283,7 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
     store.ensure_initialized()
 
     config = _load_config(store)
-    client = _make_anthropic_client()
+    client = _make_openai_client()
 
     # Build GitHub context.
     ctx = GitHubContext.from_env(event_path=event_path)
@@ -307,7 +307,7 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
         diff_analysis,
         north_star,
         client=client,
-        model=config.anthropic_model_analysis,
+        model=config.openai_model_analysis,
     )
 
     # 5. Load existing sagas and assign the saga for this PR.
@@ -323,7 +323,7 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
         report.intent,
         all_sagas,
         client=client,
-        model=config.anthropic_model_analysis,
+        model=config.openai_model_analysis,
     )
     chronicle.update_saga(store, saga, report.pr_number)
     report = report.model_copy(update={"saga_id": saga.id})

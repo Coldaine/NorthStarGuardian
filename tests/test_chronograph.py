@@ -62,7 +62,7 @@ def test_recommend_actions_turns_missing_include_diff_into_repair_action(tmp_pat
     action = actions[0]
     assert action.action_class == ActionClass.REPAIR
     assert action.metadata["operation"] == "add_missing_include"
-    assert action.confidence == 0.96
+    assert action.confidence == pytest.approx(0.96)
     assert not action.destructive
     assert action.target_path == str(target)
 
@@ -249,10 +249,10 @@ def test_non_canonical_rtk_include_path_is_not_auto_applied(tmp_path: Path) -> N
         action_class=ActionClass.REPAIR,
         target_path=str(target),
         before=before,
-        after=before + "@C:\\tmp\\RTK.md\n",
+        after=before + "@C:\\CustomIncludes\\RTK.md\n",
         reason="The diff adds an RTK-named include from an unknown path.",
         confidence=0.96,
-        metadata={"operation": "add_missing_include", "include": "@C:\\tmp\\RTK.md"},
+        metadata={"operation": "add_missing_include", "include": "@C:\\CustomIncludes\\RTK.md"},
     )
 
     plan = build_apply_plan(

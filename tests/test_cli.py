@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
-from guardian.cli import cli
+from guardian.cli import _load_config, cli
 from guardian.models import (
     Constitution,
     DiffAnalysis,
@@ -28,6 +28,7 @@ from guardian.models import (
     VarianceTag,
     Verdict,
 )
+from tests.conftest import FakeStore
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -72,6 +73,21 @@ def _make_journal_entry(pr_number: int = 42) -> JournalEntry:
         verdict=Verdict.ALIGNED,
         body_markdown="PR #42 extended the test suite.",
     )
+
+
+# ---------------------------------------------------------------------------
+# _load_config
+# ---------------------------------------------------------------------------
+
+
+class TestLoadConfig:
+    def test_validation_error_falls_back_to_defaults(self) -> None:
+        store = FakeStore()
+        store.write("meta/guardian-config.json", '{"variance_default_days": {}}')
+
+        config = _load_config(store)
+
+        assert config == GuardianConfig()
 
 
 # ---------------------------------------------------------------------------

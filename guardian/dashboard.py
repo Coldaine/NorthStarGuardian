@@ -15,6 +15,7 @@ result to the orphan branch via store.write().
 from __future__ import annotations
 
 import re
+import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -32,12 +33,12 @@ from guardian.models import (
     Verdict,
 )
 
-_TEMPLATES_DIR = Path(__file__).parent / "templates"
+_TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 
 def _jinja_env() -> Environment:
     return Environment(
-        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
+        loader=FileSystemLoader(str(_TEMPLATE_DIR)),
         autoescape=False,
         keep_trailing_newline=True,
     )
@@ -190,7 +191,7 @@ def generate_quadrant(
       ambiguous → middle    (0.50), middle   (0.50)
       drift     → low value (0.25), high debt (0.75)
 
-    Points are jittered slightly by PR number mod to avoid perfect overlap.
+    Points are jittered with a small deterministic hash to avoid perfect overlap.
     """
     lines: list[str] = [
         "quadrantChart",
@@ -215,7 +216,7 @@ def generate_quadrant(
     for entry in journal:
         debt_base, value_base = _VERDICT_SCORES[entry.verdict]
         # Small jitter from pr_number so overlapping verdicts spread out
-        jitter = (entry.pr_number % 7) * 0.03 - 0.09
+        jitter = ((entry.pr_number * 17 + 31) % 13) * 0.015 - 0.09
         debt = round(max(0.05, min(0.95, debt_base + jitter)), 2)
         value = round(max(0.05, min(0.95, value_base - jitter)), 2)
         label = f"PR#{entry.pr_number}"
@@ -350,16 +351,18 @@ def _load_drift_events(store: MemoryStore) -> list[DriftEvent]:
         return []
     try:
         raw = store.read_json("drift-ledger.json")
+        if raw is None:
+            return []
         if isinstance(raw, dict):
             raw_events = raw.get("events", [])
         elif isinstance(raw, list):
             raw_events = raw
         else:
             return []
-
         events: list[DriftEvent] = []
         for item in raw_events:
             events.append(DriftEvent(**item))
         return events
-    except (TypeError, ValueError, KeyError):
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        warnings.warn(f"drift-ledger.json is corrupt: {exc}", stacklevel=2)
         return []

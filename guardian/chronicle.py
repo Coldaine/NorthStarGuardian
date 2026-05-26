@@ -32,12 +32,12 @@ from guardian.models import (
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-_TEMPLATES_DIR = Path(__file__).parent / "templates" / "prompts"
+_TEMPLATE_DIR = Path(__file__).parent / "templates" / "prompts"
 
 
 def _jinja_env() -> Environment:
     env = Environment(
-        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
+        loader=FileSystemLoader(str(_TEMPLATE_DIR)),
         autoescape=False,
         keep_trailing_newline=True,
     )

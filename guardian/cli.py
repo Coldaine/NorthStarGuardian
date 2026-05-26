@@ -7,11 +7,13 @@ lives in the imported modules; this file is only orchestration and I/O.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
 
 import click
+from pydantic import ValidationError
 
 from guardian.constitution import initialize_constitution, read_constitution, write_constitution
 from guardian.github_io import GitHubContext, get_pr_diff, get_pr_meta, post_pr_comment
@@ -26,14 +28,14 @@ from guardian.models import GuardianConfig
 _CONFIG_PATH = "meta/guardian-config.json"
 
 
-def _load_config(store: MemoryStore) -> GuardianConfig:
+def _load_config(store: Any) -> GuardianConfig:
     """Read GuardianConfig from the memory branch, defaulting if absent."""
     if store.exists(_CONFIG_PATH):
         try:
             raw = store.read_json(_CONFIG_PATH)
             return GuardianConfig(**raw)
-        except Exception:
-            pass
+        except (json.JSONDecodeError, KeyError, TypeError, ValidationError) as exc:
+            click.echo(f"Warning: corrupt guardian-config.json, using defaults: {exc}")
     return GuardianConfig()
 
 

@@ -450,8 +450,14 @@ def _risk_for(action: StewardshipAction) -> RiskLevel:
 def _can_auto_apply(action: StewardshipAction, policy: ChronographSafetyPolicy) -> bool:
     if action.destructive or action.action_class == ActionClass.RETIRE:
         return False
+    if action.action_class != ActionClass.REPAIR:
+        return False
 
     if action.confidence < 0.9 or action.metadata.get("operation") != "add_missing_include":
+        return False
+
+    target = policy.resolve_target(action.target_path)
+    if not _is_instruction_include_file(target):
         return False
 
     if action.metadata.get("operation") == "add_missing_include":
@@ -494,8 +500,11 @@ def _plan_action_mismatch(
     if timestamp is None:
         return "plan does not match source action"
     target = policy.resolve_target(action.target_path)
+    target_existed = target.exists()
+    if item.target_existed != target_existed:
+        return "plan does not match source action"
     expected_backup = _backup_path(policy, target, action.id, timestamp)
-    expected_rollback = _rollback_command(expected_backup, target, item.target_existed)
+    expected_rollback = _rollback_command(expected_backup, target, target_existed)
     if Path(item.backup_path).resolve() != expected_backup.resolve():
         return "plan does not match source action"
     if item.rollback_command != expected_rollback:
@@ -506,6 +515,16 @@ def _plan_action_mismatch(
 def _is_known_safe_include(include: str) -> bool:
     normalized = include.strip().lstrip("@").replace("\\", "/").lower()
     return f"@{normalized}" == _SAFE_RTK_INCLUDE
+
+
+def _is_instruction_include_file(target: Path) -> bool:
+    return target.name.lower() in {
+        "agents.md",
+        "claude.md",
+        "gemini.md",
+        "instructions.md",
+        "rules.md",
+    }
 
 
 def _adds_only_known_safe_include(before: str, after: str) -> bool:

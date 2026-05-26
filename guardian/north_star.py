@@ -459,9 +459,10 @@ def initialize_north_star(answers: dict[str, Any], actor: str) -> NorthStar:
 # ---------------------------------------------------------------------------
 
 def render_north_star_template(answers: dict[str, Any]) -> str:
-    """Render the Jinja2 skeleton template with *answers* for preview/editing."""
+    """Render the Jinja2 skeleton template with escaped answer text."""
     env = Environment(
         loader=PackageLoader("guardian", "templates"),
+        autoescape=True,
         trim_blocks=True,
         lstrip_blocks=True,
     )

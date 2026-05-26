@@ -36,7 +36,12 @@ jobs:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_WORKSPACE: ${{ github.workspace }}
-        run: guardian interview --event-path "$GITHUB_EVENT_PATH"
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::notice::Skipping Guardian interview because ANTHROPIC_API_KEY is not configured."
+            exit 0
+          fi
+          guardian interview --event-path "$GITHUB_EVENT_PATH"
 
   command:
     name: Slash Command

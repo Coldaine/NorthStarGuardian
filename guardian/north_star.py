@@ -40,7 +40,28 @@ def parse_north_star_markdown(text: str) -> NorthStar:
 
     raw: dict[str, Any] = json.loads(m.group(1)) or {}
 
-    principles = [
+    return NorthStar(
+        version=raw.get("version", 1),
+        project_name=raw.get("project_name", ""),
+        identity_statement=raw.get("identity_statement", ""),
+        principles=_parse_principles(raw),
+        approved_architecture=raw.get("approved_architecture", ""),
+        anti_patterns=_parse_anti_patterns(raw),
+        created_at=_parse_datetime(raw.get("created_at")) or datetime.now(tz=UTC),
+        amended_at=_parse_datetime(raw.get("amended_at")),
+    )
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, str):
+        return datetime.fromisoformat(value)
+    if isinstance(value, datetime):
+        return value
+    return None
+
+
+def _parse_principles(raw: dict[str, Any]) -> list[Principle]:
+    return [
         Principle(
             id=p["id"],
             rank=p["rank"],
@@ -51,7 +72,9 @@ def parse_north_star_markdown(text: str) -> NorthStar:
         for p in raw.get("principles", [])
     ]
 
-    anti_patterns = [
+
+def _parse_anti_patterns(raw: dict[str, Any]) -> list[AntiPattern]:
+    return [
         AntiPattern(
             id=a["id"],
             description=a["description"],
@@ -60,27 +83,6 @@ def parse_north_star_markdown(text: str) -> NorthStar:
         )
         for a in raw.get("anti_patterns", [])
     ]
-
-    created_at = raw.get("created_at")
-    if isinstance(created_at, str):
-        created_at = datetime.fromisoformat(created_at)
-    elif created_at is None:
-        created_at = datetime.now(tz=UTC)
-
-    amended_at = raw.get("amended_at")
-    if isinstance(amended_at, str):
-        amended_at = datetime.fromisoformat(amended_at)
-
-    return NorthStar(
-        version=raw.get("version", 1),
-        project_name=raw.get("project_name", ""),
-        identity_statement=raw.get("identity_statement", ""),
-        principles=principles,
-        approved_architecture=raw.get("approved_architecture", ""),
-        anti_patterns=anti_patterns,
-        created_at=created_at,
-        amended_at=amended_at,
-    )
 
 
 def render_north_star_markdown(c: NorthStar) -> str:
@@ -258,47 +260,7 @@ def amend_north_star(
     """
     c = read_north_star(store)
     now = datetime.now(tz=UTC)
-    before: str | None = None
-
-    if target == "identity":
-        before = c.identity_statement
-        c = c.model_copy(update={"identity_statement": after, "amended_at": now})
-
-    elif target == "architecture":
-        before = c.approved_architecture
-        c = c.model_copy(update={"approved_architecture": after, "amended_at": now})
-
-    elif target == "principle":
-        if target_id is None:
-            raise ValueError("target_id is required when target='principle'")
-        principles = list(c.principles)
-        for i, p in enumerate(principles):
-            if p.id == target_id:
-                before = p.text
-                principles[i] = p.model_copy(update={"text": after})
-                break
-        else:
-            raise ValueError(f"Principle '{target_id}' not found in North Star")
-        c = c.model_copy(update={"principles": principles, "amended_at": now})
-
-    elif target == "anti_pattern":
-        if target_id is None:
-            raise ValueError("target_id is required when target='anti_pattern'")
-        patterns = list(c.anti_patterns)
-        for i, a in enumerate(patterns):
-            if a.id == target_id:
-                before = a.description
-                patterns[i] = a.model_copy(update={"description": after})
-                break
-        else:
-            raise ValueError(f"Anti-pattern '{target_id}' not found in North Star")
-        c = c.model_copy(update={"anti_patterns": patterns, "amended_at": now})
-
-    else:
-        raise ValueError(
-            f"Unknown amendment target '{target}'. "
-            "Expected: identity, principle, anti_pattern, architecture"
-        )
+    c, before = _apply_amendment(c, target, target_id, after, now)
 
     c = c.model_copy(update={"version": c.version + 1})
     amendment = Amendment(
@@ -314,6 +276,65 @@ def amend_north_star(
     write_north_star(store, c, rationale=rationale)
     append_amendment(store, amendment)
     return c
+
+
+def _apply_amendment(
+    c: NorthStar,
+    target: str,
+    target_id: str | None,
+    after: str,
+    now: datetime,
+) -> tuple[NorthStar, str | None]:
+    if target == "identity":
+        return c.model_copy(update={"identity_statement": after, "amended_at": now}), (
+            c.identity_statement
+        )
+    if target == "architecture":
+        return c.model_copy(update={"approved_architecture": after, "amended_at": now}), (
+            c.approved_architecture
+        )
+    if target == "principle":
+        return _amend_principle(c, target_id, after, now)
+    if target == "anti_pattern":
+        return _amend_anti_pattern(c, target_id, after, now)
+    raise ValueError(
+        f"Unknown amendment target '{target}'. "
+        "Expected: identity, principle, anti_pattern, architecture"
+    )
+
+
+def _amend_principle(
+    c: NorthStar,
+    target_id: str | None,
+    after: str,
+    now: datetime,
+) -> tuple[NorthStar, str]:
+    if target_id is None:
+        raise ValueError("target_id is required when target='principle'")
+    principles = list(c.principles)
+    for i, p in enumerate(principles):
+        if p.id == target_id:
+            principles[i] = p.model_copy(update={"text": after})
+            return c.model_copy(update={"principles": principles, "amended_at": now}), p.text
+    raise ValueError(f"Principle '{target_id}' not found in North Star")
+
+
+def _amend_anti_pattern(
+    c: NorthStar,
+    target_id: str | None,
+    after: str,
+    now: datetime,
+) -> tuple[NorthStar, str]:
+    if target_id is None:
+        raise ValueError("target_id is required when target='anti_pattern'")
+    patterns = list(c.anti_patterns)
+    for i, a in enumerate(patterns):
+        if a.id == target_id:
+            patterns[i] = a.model_copy(update={"description": after})
+            return c.model_copy(update={"anti_patterns": patterns, "amended_at": now}), (
+                a.description
+            )
+    raise ValueError(f"Anti-pattern '{target_id}' not found in North Star")
 
 
 def append_amendment(store: MemoryStore, amendment: Amendment) -> None:
@@ -367,6 +388,7 @@ def initialize_north_star(answers: dict[str, Any], actor: str) -> NorthStar:
     Returns an un-persisted NorthStar object; call :func:`write_north_star`
     to save it.
     """
+    _ = actor
     now = datetime.now(tz=UTC)
 
     raw_principles: list[str | dict[str, Any]] = answers.get("principles", [])

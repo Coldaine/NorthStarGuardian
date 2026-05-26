@@ -81,9 +81,10 @@ class MemoryStore:
         ``message`` is accepted for API compatibility with the old batched
         storage interface; repo-native writes do not commit automatically.
         """
+        _ = message
         full = self._resolve(path)
         full.parent.mkdir(parents=True, exist_ok=True)
-        full.write_text(content, encoding="utf-8")
+        full.write_text(content, encoding="utf-8")  # NOSONAR - confined by _resolve().
 
     def write_json(self, path: str, obj: Any, message: str = "") -> None:
         """Serialise *obj* as pretty-printed JSON and write it."""
@@ -107,9 +108,11 @@ class MemoryStore:
 
     def commit_and_push(self, message: str, push: bool = True) -> None:
         """No-op compatibility boundary for repo-native storage."""
+        _ = (message, push)
         return None
 
     @contextmanager
     def session(self, message: str, push: bool = True) -> Generator[MemoryStore, None, None]:
         """Yield this store without creating a separate commit/push."""
+        _ = (message, push)
         yield self

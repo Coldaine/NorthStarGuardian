@@ -121,7 +121,7 @@ class TestReadWrite:
 
 class TestCommitAndPush:
     def test_commit_and_push_is_noop_for_repo_native_store(self, tmp_path: Path) -> None:
-        repo, store = TestReadWrite()._initialized_store(tmp_path)
+        _repo, store = TestReadWrite()._initialized_store(tmp_path)
 
         store.write("note.txt", "persistent")
         store.commit_and_push("add note", push=True)

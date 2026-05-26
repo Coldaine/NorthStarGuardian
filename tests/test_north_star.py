@@ -146,7 +146,7 @@ class TestReadWrite:
 # amend_north_star
 # ---------------------------------------------------------------------------
 
-class TestAmendnorth_star:
+class TestAmendNorthStar:
     def _store_with_north_star(self, fake_store: FakeStore) -> FakeStore:
         write_north_star(fake_store, _sample_north_star())
         return fake_store
@@ -327,7 +327,7 @@ class TestAmendmentLog:
 # initialize_north_star
 # ---------------------------------------------------------------------------
 
-class TestInitializenorth_star:
+class TestInitializeNorthStar:
     def _answers(self) -> dict:
         return {
             "project_name": "MyProject",

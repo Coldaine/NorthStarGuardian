@@ -29,6 +29,8 @@ from guardian.models import (
     Verdict,
 )
 
+_SAGA_INDEX_PATH = "memory/sagas/_index.json"
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -139,13 +141,13 @@ def _compose_journal_markdown(
 
 def _load_saga_index(store: MemoryStore) -> dict[str, Any]:
     """Return the saga index dict, creating an empty one if absent."""
-    if store.exists("memory/sagas/_index.json"):
-        return store.read_json("memory/sagas/_index.json")
+    if store.exists(_SAGA_INDEX_PATH):
+        return store.read_json(_SAGA_INDEX_PATH)
     return {"sagas": []}
 
 
 def _save_saga_index(store: MemoryStore, index: dict[str, Any]) -> None:
-    store.write_json("memory/sagas/_index.json", index)
+    store.write_json(_SAGA_INDEX_PATH, index)
 
 
 def _saga_from_index_entry(entry: dict[str, Any]) -> Saga:

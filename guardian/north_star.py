@@ -90,64 +90,85 @@ def render_north_star_markdown(c: NorthStar) -> str:
 
     The output is fully round-trippable via :func:`parse_north_star_markdown`.
     """
+    yaml_block = json.dumps(
+        _frontmatter_from_north_star(c),
+        indent=2,
+        ensure_ascii=False,
+        default=str,
+    )
+    return f"---\n{yaml_block}\n---\n{_body_from_north_star(c)}\n"
+
+
+def _frontmatter_from_north_star(c: NorthStar) -> dict[str, Any]:
     frontmatter: dict[str, Any] = {
         "version": c.version,
         "project_name": c.project_name,
         "identity_statement": c.identity_statement,
         "approved_architecture": c.approved_architecture,
         "created_at": c.created_at.isoformat(),
-        "principles": [
-            {
-                "id": p.id,
-                "rank": p.rank,
-                "text": p.text,
-                **({"rationale": p.rationale} if p.rationale else {}),
-                **({"tags": p.tags} if p.tags else {}),
-            }
-            for p in c.principles
-        ],
-        "anti_patterns": [
-            {
-                "id": a.id,
-                "description": a.description,
-                **({"example": a.example} if a.example else {}),
-                **({"detect": a.detect} if a.detect else {}),
-            }
-            for a in c.anti_patterns
-        ],
+        "principles": [_principle_to_frontmatter(p) for p in c.principles],
+        "anti_patterns": [_anti_pattern_to_frontmatter(a) for a in c.anti_patterns],
     }
     if c.amended_at:
         frontmatter["amended_at"] = c.amended_at.isoformat()
+    return frontmatter
 
-    yaml_block = json.dumps(frontmatter, indent=2, ensure_ascii=False, default=str)
 
-    # Build the human-readable body after the frontmatter.
+def _principle_to_frontmatter(p: Principle) -> dict[str, Any]:
+    item: dict[str, Any] = {"id": p.id, "rank": p.rank, "text": p.text}
+    if p.rationale:
+        item["rationale"] = p.rationale
+    if p.tags:
+        item["tags"] = p.tags
+    return item
+
+
+def _anti_pattern_to_frontmatter(a: AntiPattern) -> dict[str, Any]:
+    item: dict[str, Any] = {"id": a.id, "description": a.description}
+    if a.example:
+        item["example"] = a.example
+    if a.detect:
+        item["detect"] = a.detect
+    return item
+
+
+def _body_from_north_star(c: NorthStar) -> str:
     body_lines = [
         f"# {c.project_name} — North Star\n",
         "## Identity\n",
         c.identity_statement,
         "\n## Principles\n",
     ]
-    for p in sorted(c.principles, key=lambda x: x.rank):
-        body_lines.append(f"### {p.rank}. {p.text}\n")
-        if p.rationale:
-            body_lines.append(f"{p.rationale}\n")
 
+    body_lines.extend(_principle_body_lines(c.principles))
     body_lines.append("\n## Approved Architecture\n")
     body_lines.append(c.approved_architecture)
+    body_lines.extend(_anti_pattern_body_lines(c.anti_patterns))
+    return "\n".join(body_lines)
 
-    if c.anti_patterns:
-        body_lines.append("\n\n## Anti-Patterns\n")
-        for a in c.anti_patterns:
-            body_lines.append(f"### {a.id}\n")
-            body_lines.append(f"{a.description}\n")
-            if a.example:
-                body_lines.append(f"*Example:* {a.example}\n")
-            if a.detect:
-                body_lines.append(f"*Detect:* `{a.detect}`\n")
 
-    body = "\n".join(body_lines)
-    return f"---\n{yaml_block}\n---\n{body}\n"
+def _principle_body_lines(principles: list[Principle]) -> list[str]:
+    lines: list[str] = []
+    for p in sorted(principles, key=lambda x: x.rank):
+        lines.append(f"### {p.rank}. {p.text}\n")
+        if p.rationale:
+            lines.append(f"{p.rationale}\n")
+    return lines
+
+
+def _anti_pattern_body_lines(anti_patterns: list[AntiPattern]) -> list[str]:
+    if not anti_patterns:
+        return []
+
+    lines = ["\n\n## Anti-Patterns\n"]
+    for a in anti_patterns:
+        lines.append(f"### {a.id}\n")
+        lines.append(f"{a.description}\n")
+        if a.example:
+            lines.append(f"*Example:* {a.example}\n")
+        if a.detect:
+            lines.append(f"*Detect:* `{a.detect}`\n")
+    return lines
 
 
 # ---------------------------------------------------------------------------

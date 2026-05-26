@@ -16,14 +16,14 @@ import shutil
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 
 _CHRONOGRAPH_ROOT = ".github/guardian/chronograph"
 _AUDIT_PATH = f"{_CHRONOGRAPH_ROOT}/audit.jsonl"
 _BACKUP_ROOT = f"{_CHRONOGRAPH_ROOT}/backups"
-_SAFE_RTK_INCLUDE = "@c:/users/pmacl/.codex/rtk.md"
+_M = TypeVar("_M", bound=BaseModel)
 
 
 class ActionClass(StrEnum):
@@ -271,59 +271,27 @@ def apply_plan(
         target = policy.validate_target(item.target_path)
         action = action_by_id.get(item.action_id)
         if action is None:
-            result = ApplyResult(
-                action_id=item.action_id,
-                target_path=str(target),
-                applied=False,
-                skipped_reason="source action missing",
-                old_hash=item.old_hash,
-                new_hash=item.new_hash,
-                rollback_command=item.rollback_command,
-            )
+            result = _skip_result(item, target, "source action missing")
             _append_audit(policy, item, result, now=now)
             results.append(result)
             continue
 
         mismatch = _plan_action_mismatch(item, action, policy)
         if mismatch:
-            result = ApplyResult(
-                action_id=item.action_id,
-                target_path=str(target),
-                applied=False,
-                skipped_reason=mismatch,
-                old_hash=item.old_hash,
-                new_hash=item.new_hash,
-                rollback_command=item.rollback_command,
-            )
+            result = _skip_result(item, target, mismatch)
             _append_audit(policy, item, result, now=now)
             results.append(result)
             continue
 
         if not (_can_auto_apply(action, policy) or action.approved):
-            result = ApplyResult(
-                action_id=item.action_id,
-                target_path=str(target),
-                applied=False,
-                skipped_reason="action requires explicit approval",
-                old_hash=item.old_hash,
-                new_hash=item.new_hash,
-                rollback_command=item.rollback_command,
-            )
+            result = _skip_result(item, target, "action requires explicit approval")
             _append_audit(policy, item, result, now=now)
             results.append(result)
             continue
 
         current = target.read_text(encoding="utf-8") if target.exists() else ""
         if _sha256(current) != item.old_hash:
-            result = ApplyResult(
-                action_id=item.action_id,
-                target_path=str(target),
-                applied=False,
-                skipped_reason="target changed since plan",
-                old_hash=item.old_hash,
-                new_hash=item.new_hash,
-                rollback_command=item.rollback_command,
-            )
+            result = _skip_result(item, target, "target changed since plan")
             _append_audit(policy, item, result, now=now)
             results.append(result)
             continue
@@ -350,7 +318,7 @@ def apply_plan(
             )
             _append_audit(policy, item, result, now=now)
             results.append(result)
-        except Exception as exc:
+        except (OSError, shutil.Error) as exc:
             _restore_after_failure(target, backup, existed)
             result = ApplyResult(
                 action_id=item.action_id,
@@ -369,11 +337,14 @@ def apply_plan(
     return results
 
 
-def load_diffs(path: Path) -> list[ConfigDiff]:
+def _load_model_list(path: Path, model_cls: type[_M]) -> list[_M]:
     if not path.exists():
         return []
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    return [ConfigDiff(**item) for item in raw]
+    return [model_cls(**item) for item in json.loads(path.read_text(encoding="utf-8"))]
+
+
+def load_diffs(path: Path) -> list[ConfigDiff]:
+    return _load_model_list(path, ConfigDiff)
 
 
 def write_json(path: Path, obj: Any) -> None:
@@ -388,19 +359,27 @@ def write_json(path: Path, obj: Any) -> None:
 
 
 def load_actions(path: Path) -> list[StewardshipAction]:
-    if not path.exists():
-        return []
-    return [StewardshipAction(**item) for item in json.loads(path.read_text(encoding="utf-8"))]
+    return _load_model_list(path, StewardshipAction)
 
 
 def load_apply_plan(path: Path) -> list[ApplyPlanItem]:
-    if not path.exists():
-        return []
-    return [ApplyPlanItem(**item) for item in json.loads(path.read_text(encoding="utf-8"))]
+    return _load_model_list(path, ApplyPlanItem)
 
 
 def chronograph_path(repo_root: Path, name: str) -> Path:
     return repo_root.resolve() / _CHRONOGRAPH_ROOT / name
+
+
+def _skip_result(item: ApplyPlanItem, target: Path, reason: str) -> ApplyResult:
+    return ApplyResult(
+        action_id=item.action_id,
+        target_path=str(target),
+        applied=False,
+        skipped_reason=reason,
+        old_hash=item.old_hash,
+        new_hash=item.new_hash,
+        rollback_command=item.rollback_command,
+    )
 
 
 def _detect_missing_include(before: str, after: str, summary: str) -> str | None:
@@ -514,7 +493,8 @@ def _plan_action_mismatch(
 
 def _is_known_safe_include(include: str) -> bool:
     normalized = include.strip().lstrip("@").replace("\\", "/").lower()
-    return f"@{normalized}" == _SAFE_RTK_INCLUDE
+    home_posix = Path.home().as_posix().lower()
+    return normalized == f"{home_posix}/.codex/rtk.md"
 
 
 def _is_instruction_include_file(target: Path) -> bool:

@@ -20,6 +20,29 @@ from guardian.chronograph import (
 from guardian.cli import cli
 
 NOW = datetime(2026, 5, 26, 12, 0, tzinfo=UTC)
+_RTK_INCLUDE_LINE = "@" + str(Path.home() / ".codex" / "RTK.md")
+
+
+def _make_rtk_repair_action(
+    tmp_path: Path,
+) -> tuple[Path, StewardshipAction, ChronographSafetyPolicy, list]:
+    target = tmp_path / ".codex" / "AGENTS.md"
+    target.parent.mkdir(exist_ok=True)
+    before = "Always commit when feasible.\n"
+    target.write_text(before, encoding="utf-8")
+    action = StewardshipAction(
+        id="repair-missing-rtk",
+        action_class=ActionClass.REPAIR,
+        target_path=str(target),
+        before=before,
+        after=before + _RTK_INCLUDE_LINE + "\n",
+        reason="The diff showed AGENTS.md missing the durable RTK include.",
+        confidence=0.96,
+        metadata={"operation": "add_missing_include", "include": _RTK_INCLUDE_LINE},
+    )
+    policy = ChronographSafetyPolicy.for_repo(tmp_path)
+    plan = build_apply_plan([action], policy=policy, now=NOW)
+    return target, action, policy, plan
 
 
 def test_recommend_actions_turns_missing_include_diff_into_repair_action(tmp_path: Path) -> None:
@@ -27,8 +50,8 @@ def test_recommend_actions_turns_missing_include_diff_into_repair_action(tmp_pat
     diff = ConfigDiff(
         target_path=str(target),
         before="Always commit when feasible.\n",
-        after="Always commit when feasible.\n@C:\\Users\\pmacl\\.codex\\RTK.md\n",
-        summary="missing include @C:\\Users\\pmacl\\.codex\\RTK.md",
+        after="Always commit when feasible.\n" + _RTK_INCLUDE_LINE + "\n",
+        summary="missing include " + _RTK_INCLUDE_LINE,
         source="memory-curation",
         confidence=0.96,
     )
@@ -53,7 +76,7 @@ def test_build_apply_plan_marks_high_confidence_additive_repair_auto_apply(tmp_p
         action_class=ActionClass.REPAIR,
         target_path=str(target),
         before="Always commit when feasible.\n",
-        after="Always commit when feasible.\n@C:\\Users\\pmacl\\.codex\\RTK.md\n",
+        after="Always commit when feasible.\n" + _RTK_INCLUDE_LINE + "\n",
         reason="The diff showed AGENTS.md missing the durable RTK include.",
         confidence=0.96,
         metadata={"operation": "add_missing_include"},
@@ -100,22 +123,8 @@ def test_apply_plan_recomputes_auto_apply_from_source_action(tmp_path: Path) -> 
 
 
 def test_apply_plan_rejects_tampered_backup_path(tmp_path: Path) -> None:
-    target = tmp_path / ".codex" / "AGENTS.md"
-    target.parent.mkdir()
-    before = "Always commit when feasible.\n"
-    target.write_text(before, encoding="utf-8")
-    action = StewardshipAction(
-        id="repair-missing-rtk",
-        action_class=ActionClass.REPAIR,
-        target_path=str(target),
-        before=before,
-        after=before + "@C:\\Users\\pmacl\\.codex\\RTK.md\n",
-        reason="The diff showed AGENTS.md missing the durable RTK include.",
-        confidence=0.96,
-        metadata={"operation": "add_missing_include", "include": "@C:\\Users\\pmacl\\.codex\\RTK.md"},
-    )
-    policy = ChronographSafetyPolicy.for_repo(tmp_path)
-    plan = build_apply_plan([action], policy=policy, now=NOW)
+    target, action, policy, plan = _make_rtk_repair_action(tmp_path)
+    before = target.read_text(encoding="utf-8")
     tampered = plan[0].model_copy(update={"backup_path": str(tmp_path / "outside.bak")})
 
     results = apply_plan([tampered], policy=policy, actions=[action], now=NOW)
@@ -127,22 +136,8 @@ def test_apply_plan_rejects_tampered_backup_path(tmp_path: Path) -> None:
 
 
 def test_apply_plan_rejects_tampered_target_existed(tmp_path: Path) -> None:
-    target = tmp_path / ".codex" / "AGENTS.md"
-    target.parent.mkdir()
-    before = "Always commit when feasible.\n"
-    target.write_text(before, encoding="utf-8")
-    action = StewardshipAction(
-        id="repair-missing-rtk",
-        action_class=ActionClass.REPAIR,
-        target_path=str(target),
-        before=before,
-        after=before + "@C:\\Users\\pmacl\\.codex\\RTK.md\n",
-        reason="The diff showed AGENTS.md missing the durable RTK include.",
-        confidence=0.96,
-        metadata={"operation": "add_missing_include", "include": "@C:\\Users\\pmacl\\.codex\\RTK.md"},
-    )
-    policy = ChronographSafetyPolicy.for_repo(tmp_path)
-    plan = build_apply_plan([action], policy=policy, now=NOW)
+    target, action, policy, plan = _make_rtk_repair_action(tmp_path)
+    before = target.read_text(encoding="utf-8")
     tampered = plan[0].model_copy(
         update={
             "target_existed": False,
@@ -158,22 +153,7 @@ def test_apply_plan_rejects_tampered_target_existed(tmp_path: Path) -> None:
 
 
 def test_apply_plan_skips_when_live_target_changed_since_planning(tmp_path: Path) -> None:
-    target = tmp_path / ".codex" / "AGENTS.md"
-    target.parent.mkdir()
-    before = "Always commit when feasible.\n"
-    target.write_text(before, encoding="utf-8")
-    action = StewardshipAction(
-        id="repair-missing-rtk",
-        action_class=ActionClass.REPAIR,
-        target_path=str(target),
-        before=before,
-        after=before + "@C:\\Users\\pmacl\\.codex\\RTK.md\n",
-        reason="The diff showed AGENTS.md missing the durable RTK include.",
-        confidence=0.96,
-        metadata={"operation": "add_missing_include", "include": "@C:\\Users\\pmacl\\.codex\\RTK.md"},
-    )
-    policy = ChronographSafetyPolicy.for_repo(tmp_path)
-    plan = build_apply_plan([action], policy=policy, now=NOW)
+    target, action, policy, plan = _make_rtk_repair_action(tmp_path)
     target.write_text("User changed this file after the plan.\n", encoding="utf-8")
 
     results = apply_plan(plan, policy=policy, actions=[action], now=NOW)
@@ -217,8 +197,8 @@ def test_arbitrary_missing_include_is_not_auto_applied(tmp_path: Path) -> None:
     diff = ConfigDiff(
         target_path=str(target),
         before=before,
-        after=before + "@C:\\Users\\pmacl\\.codex\\UNREVIEWED.md\n",
-        summary="missing include @C:\\Users\\pmacl\\.codex\\UNREVIEWED.md",
+        after=before + "@/tmp/UNREVIEWED.md\n",
+        summary="missing include @/tmp/UNREVIEWED.md",
         source="memory-curation",
         confidence=0.96,
     )
@@ -247,7 +227,7 @@ def test_metadata_cannot_claim_rtk_include_for_arbitrary_added_line(tmp_path: Pa
         after=before + "@C:\\tmp\\UNREVIEWED.md\n",
         reason="The metadata claims this is an RTK include.",
         confidence=0.96,
-        metadata={"operation": "add_missing_include", "include": "@C:\\Users\\pmacl\\.codex\\RTK.md"},
+        metadata={"operation": "add_missing_include", "include": _RTK_INCLUDE_LINE},
     )
 
     plan = build_apply_plan(
@@ -319,10 +299,10 @@ def test_missing_include_does_not_auto_apply_to_settings_json(tmp_path: Path) ->
         action_class=ActionClass.REPAIR,
         target_path=str(target),
         before=before,
-        after=before + "@C:\\Users\\pmacl\\.codex\\RTK.md\n",
+        after=before + _RTK_INCLUDE_LINE + "\n",
         reason="A setting file cannot safely accept markdown include syntax.",
         confidence=0.96,
-        metadata={"operation": "add_missing_include", "include": "@C:\\Users\\pmacl\\.codex\\RTK.md"},
+        metadata={"operation": "add_missing_include", "include": _RTK_INCLUDE_LINE},
     )
 
     plan = build_apply_plan(
@@ -341,10 +321,10 @@ def test_new_file_apply_plan_uses_remove_item_rollback(tmp_path: Path) -> None:
         action_class=ActionClass.REPAIR,
         target_path=str(target),
         before="",
-        after="@C:\\Users\\pmacl\\.codex\\RTK.md\n",
+        after=_RTK_INCLUDE_LINE + "\n",
         reason="The diff showed AGENTS.md missing the durable RTK include.",
         confidence=0.96,
-        metadata={"operation": "add_missing_include", "include": "@C:\\Users\\pmacl\\.codex\\RTK.md"},
+        metadata={"operation": "add_missing_include", "include": _RTK_INCLUDE_LINE},
     )
 
     plan = build_apply_plan(
@@ -398,12 +378,13 @@ def test_build_apply_plan_allows_home_level_tool_roots(
     target.parent.mkdir(parents=True)
     target.write_text("Always commit when feasible.\n", encoding="utf-8")
     monkeypatch.setattr("guardian.chronograph.Path.home", staticmethod(lambda: home))
+    rtk_include = f"@{(home / '.codex' / 'RTK.md').as_posix()}"
     action = StewardshipAction(
         id="repair-home-root",
         action_class=ActionClass.REPAIR,
         target_path=str(target),
         before="Always commit when feasible.\n",
-        after="Always commit when feasible.\n@C:\\Users\\pmacl\\.codex\\RTK.md\n",
+        after=f"Always commit when feasible.\n{rtk_include}\n",
         reason="The diff showed a home-level Codex include was missing.",
         confidence=0.96,
         metadata={"operation": "add_missing_include"},
@@ -423,7 +404,7 @@ def test_apply_plan_creates_backup_and_audit_for_live_write(tmp_path: Path) -> N
     target = tmp_path / ".codex" / "AGENTS.md"
     target.parent.mkdir()
     before = "Always commit when feasible.\n"
-    after = before + "@C:\\Users\\pmacl\\.codex\\RTK.md\n"
+    after = before + _RTK_INCLUDE_LINE + "\n"
     target.write_text(before, encoding="utf-8")
     action = StewardshipAction(
         id="repair-missing-rtk",
@@ -516,8 +497,8 @@ def test_chronograph_cli_writes_recommendations_plan_and_audit(tmp_path: Path) -
     diff = ConfigDiff(
         target_path=str(target),
         before=target.read_text(encoding="utf-8"),
-        after="Always commit when feasible.\n@C:\\Users\\pmacl\\.codex\\RTK.md\n",
-        summary="missing include @C:\\Users\\pmacl\\.codex\\RTK.md",
+        after="Always commit when feasible.\n" + _RTK_INCLUDE_LINE + "\n",
+        summary="missing include " + _RTK_INCLUDE_LINE,
         source="memory-curation",
         confidence=0.96,
     )
@@ -545,4 +526,4 @@ def test_chronograph_cli_writes_recommendations_plan_and_audit(tmp_path: Path) -
     assert (chronograph_dir / "recommendations.json").exists()
     assert (chronograph_dir / "apply-plan.json").exists()
     assert (chronograph_dir / "audit.jsonl").exists()
-    assert "@C:\\Users\\pmacl\\.codex\\RTK.md" in target.read_text(encoding="utf-8")
+    assert _RTK_INCLUDE_LINE in target.read_text(encoding="utf-8")

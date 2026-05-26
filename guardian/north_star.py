@@ -462,7 +462,6 @@ def render_north_star_template(answers: dict[str, Any]) -> str:
     """Render the Jinja2 skeleton template with *answers* for preview/editing."""
     env = Environment(
         loader=PackageLoader("guardian", "templates"),
-        autoescape=False,
         trim_blocks=True,
         lstrip_blocks=True,
     )

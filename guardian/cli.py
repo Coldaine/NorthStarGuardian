@@ -58,7 +58,13 @@ def _load_review_north_star(
 ) -> Any:
     """Load the North Star snapshot for a review run and persist active copy."""
     environ = env if env is not None else os.environ
-    northstar_path = config.north_star.active_copy_path if config.north_star.active_copy_path else "northstar.md"
+    _GUARDIAN_PREFIX = ".github/guardian/"
+    _active = config.north_star.active_copy_path or ".github/guardian/northstar.md"
+    northstar_path = (
+        _active[len(_GUARDIAN_PREFIX):]
+        if _active.startswith(_GUARDIAN_PREFIX)
+        else Path(_active).name
+    )
 
     if config.north_star.source == "linear":
         from guardian.linear import LinearClient

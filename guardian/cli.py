@@ -744,6 +744,99 @@ def preview_dashboard(output: str, repo_root: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# guardian chronograph-* local stewardship pipeline
+# ---------------------------------------------------------------------------
+
+@cli.command(name="chronograph-recommend-actions")
+@click.option(
+    "--repo-root",
+    default=".",
+    show_default=True,
+    help="Repository root directory.",
+)
+@click.option(
+    "--diffs",
+    default="diffs.json",
+    show_default=True,
+    help="Chronograph diff JSON file under .github/guardian/chronograph.",
+)
+def chronograph_recommend_actions(repo_root: str, diffs: str) -> None:
+    """Stage 07: turn curated config diffs into stewardship recommendations."""
+    from guardian import chronograph
+
+    root = Path(repo_root).resolve()
+    policy = chronograph.ChronographSafetyPolicy.for_repo(root)
+    diff_path = chronograph.chronograph_path(root, diffs)
+    output_path = chronograph.chronograph_path(root, "recommendations.json")
+
+    actions = chronograph.recommend_actions(chronograph.load_diffs(diff_path))
+    chronograph.write_json(output_path, actions)
+
+    click.echo(
+        "Chronograph: wrote "
+        f"{len(actions)} recommendation(s) to {output_path.relative_to(policy.repo_root)}"
+    )
+
+
+@cli.command(name="chronograph-plan-apply")
+@click.option(
+    "--repo-root",
+    default=".",
+    show_default=True,
+    help="Repository root directory.",
+)
+def chronograph_plan_apply(repo_root: str) -> None:
+    """Stage 08: create an audited apply plan from recommendations."""
+    from guardian import chronograph
+
+    root = Path(repo_root).resolve()
+    policy = chronograph.ChronographSafetyPolicy.for_repo(root)
+    recommendations_path = chronograph.chronograph_path(root, "recommendations.json")
+    plan_path = chronograph.chronograph_path(root, "apply-plan.json")
+
+    actions = chronograph.load_actions(recommendations_path)
+    plan = chronograph.build_apply_plan(actions, policy=policy)
+    chronograph.write_json(plan_path, plan)
+
+    auto_apply = sum(1 for item in plan if item.auto_apply)
+    click.echo(
+        "Chronograph: wrote apply plan with "
+        f"{len(plan)} item(s), {auto_apply} auto-applicable, "
+        f"to {plan_path.relative_to(policy.repo_root)}"
+    )
+
+
+@cli.command(name="chronograph-apply")
+@click.option(
+    "--repo-root",
+    default=".",
+    show_default=True,
+    help="Repository root directory.",
+)
+def chronograph_apply(repo_root: str) -> None:
+    """Stage 09: apply approved or high-confidence allowlisted actions."""
+    from guardian import chronograph
+
+    root = Path(repo_root).resolve()
+    policy = chronograph.ChronographSafetyPolicy.for_repo(root)
+    recommendations_path = chronograph.chronograph_path(root, "recommendations.json")
+    plan_path = chronograph.chronograph_path(root, "apply-plan.json")
+    results_path = chronograph.chronograph_path(root, "apply-results.json")
+
+    actions = chronograph.load_actions(recommendations_path)
+    plan = chronograph.load_apply_plan(plan_path)
+    results = chronograph.apply_plan(plan, policy=policy, actions=actions)
+    chronograph.write_json(results_path, results)
+
+    applied = sum(1 for result in results if result.applied)
+    click.echo(
+        "Chronograph: applied "
+        f"{applied}/{len(results)} plan item(s); audit log is "
+        f"{policy.audit_path.relative_to(policy.repo_root)}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

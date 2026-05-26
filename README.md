@@ -6,6 +6,8 @@ The Guardian runs on every pull request. It does not block merges, does not modi
 
 See [`docs/SPEC.md`](docs/SPEC.md) for the full semantic specification and [`docs/ADDENDUM.md`](docs/ADDENDUM.md) for in-flight design questions.
 
+Chronograph is Guardian's history-backed configuration steward. It records tool and agent configuration evidence, explains what changed over time, recommends durable policy improvements, plans reversible apply actions, and may apply tightly scoped live configuration repairs. Chronograph does not blindly sync machines or rewrite arbitrary files; it applies audited, allowlisted, reversible stewardship actions with backups and an append-only audit trail.
+
 ## Status
 
 Pre-alpha. End-to-end test passing against a synthetic PR fixture. Not yet proven against a real-world pull request — that milestone is next. The core pipeline (diff analysis → Claude interview → PR comment → memory commit → dashboard render) runs without error. No production installs yet.
@@ -44,6 +46,18 @@ Nothing is written to `main`. If the workflow fails, `main` is unaffected.
 | `/chronicle` | View project history — full, by-saga, by-date-range, or drift-only |
 | `/dashboard` | Trigger a full dashboard regeneration and post the Pages link |
 | `/status` | Quick health check: active sagas, open debt timers, last interview, drift trend |
+
+## Chronograph Stewardship
+
+Chronograph extends Guardian from passive history into active configuration care for agent and tool roots such as `.claude`, `.codex`, `.gemini`, and OpenCode config. Its local pipeline is:
+
+| Stage | Command | Purpose |
+|---|---|---|
+| `07_recommend_actions` | `guardian chronograph-recommend-actions` | Convert curated config diffs into concrete stewardship actions |
+| `08_plan_apply` | `guardian chronograph-plan-apply` | Build an apply plan with target paths, before/after diffs, risk, backup paths, and rollback commands |
+| `09_apply` | `guardian chronograph-apply` | Apply approved or high-confidence allowlisted actions and append audit records |
+
+Action classes are `observe`, `propose`, `promote`, `repair`, and `retire`. Live writes are allowlist-only and every applied write records the target file, old and new hashes, risk level, backup path, rollback command, and historical reason. Destructive actions are never auto-applied.
 
 ## Configuration
 

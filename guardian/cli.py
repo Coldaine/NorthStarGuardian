@@ -16,15 +16,15 @@ from typing import Any
 import click
 from anthropic import Anthropic
 
-from guardian.constitution import (
-    amend_constitution,
-    initialize_constitution,
-    read_constitution,
-    write_constitution,
-)
 from guardian.github_io import GitHubContext, get_pr_diff, get_pr_meta, post_pr_comment
 from guardian.memory import MemoryStore
 from guardian.models import GuardianConfig
+from guardian.north_star import (
+    amend_north_star,
+    initialize_north_star,
+    read_north_star,
+    write_north_star,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -207,13 +207,13 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
     # 2. Analyze diff (pre-LLM structural extraction).
     diff_analysis = analyze.analyze_diff(diff, meta)
 
-    # 3. Read constitution.
-    constitution = read_constitution(store)
+    # 3. Read North Star.
+    north_star = read_north_star(store)
 
     # 4. Run LLM interview.
     report = analyze.run_interview(
         diff_analysis,
-        constitution,
+        north_star,
         client=client,
         model=config.anthropic_model_analysis,
     )
@@ -240,7 +240,7 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
     chronicle.write_journal_entry(store, report, saga)
 
     # 7. Render dashboard.
-    dashboard.render_dashboard(store, constitution)
+    dashboard.render_dashboard(store, north_star)
 
     # 8. Commit everything to guardian-memory.
     pr_num = ctx.pr.number
@@ -330,11 +330,11 @@ def _handle_init_guardian(
     """Handle /init-guardian — post instructions to run init-local."""
     reply = (
         "## Guardian Setup\n\n"
-        "To initialize the Guardian Constitution for this repository, run the "
+        "To initialize the Guardian North Star for this repository, run the "
         "following command locally:\n\n"
         "```\nguardian init-local\n```\n\n"
         "This will walk you through the guided setup flow interactively. "
-        "Once complete, the Constitution will be committed to the "
+        "Once complete, the North Star will be committed to the "
         "`guardian-memory` branch."
     )
     if ctx.pr:
@@ -349,22 +349,22 @@ def _handle_re_anchor(
     config: GuardianConfig,
     args: list[str],
 ) -> None:
-    """Handle /re-anchor — show current constitution summary and instructions."""
+    """Handle /re-anchor — show current North Star summary and instructions."""
     try:
-        constitution = read_constitution(store)
+        north_star = read_north_star(store)
         principles_text = "\n".join(
-            f"{p.rank}. {p.text}" for p in constitution.principles
+            f"{p.rank}. {p.text}" for p in north_star.principles
         )
         reply = (
             f"## Guardian Re-Anchor\n\n"
-            f"**Current identity:** {constitution.identity_statement}\n\n"
+            f"**Current identity:** {north_star.identity_statement}\n\n"
             f"**Principles:**\n{principles_text}\n\n"
             "To update these, run `guardian init-local` locally, or use "
             "`/amend <principle-id> \"new text\"` for targeted amendments."
         )
     except FileNotFoundError:
         reply = (
-            "Guardian: no Constitution found. Run `guardian init-local` first."
+            "Guardian: no North Star found. Run `guardian init-local` first."
         )
 
     if ctx.pr:
@@ -396,7 +396,7 @@ def _handle_amend(
     actor = ctx.event_payload.get("comment", {}).get("user", {}).get("login", "unknown")
 
     try:
-        updated = amend_constitution(
+        updated = amend_north_star(
             store,
             target="principle",
             target_id=target_id,
@@ -411,7 +411,7 @@ def _handle_amend(
             f"## Guardian Amendment Applied\n\n"
             f"**Principle `{target_id}`** updated to:\n\n"
             f"> {new_text}\n\n"
-            f"Constitution version is now **v{updated.version}**."
+            f"North Star version is now **v{updated.version}**."
         )
     except (ValueError, FileNotFoundError) as exc:
         reply = f"Guardian: amendment failed — {exc}"
@@ -462,8 +462,8 @@ def _handle_dashboard(
     from guardian import dashboard
 
     try:
-        constitution = read_constitution(store)
-        dashboard.render_dashboard(store, constitution)
+        north_star = read_north_star(store)
+        dashboard.render_dashboard(store, north_star)
         with store.session("guardian: regenerate dashboard via /dashboard command"):
             pass
 
@@ -627,11 +627,11 @@ def sweep_debt(repo_root: str | None) -> None:
     help="Repository root directory.",
 )
 def init_local(repo_root: str) -> None:
-    """Interactive setup: walk through constitution initialization locally."""
+    """Interactive setup: walk through North Star initialization locally."""
     root = Path(repo_root).resolve()
     store = MemoryStore(root)
 
-    click.echo("Guardian — Constitution Setup")
+    click.echo("Guardian — North Star Setup")
     click.echo("=" * 40)
 
     # Project identity.
@@ -687,19 +687,19 @@ def init_local(repo_root: str) -> None:
         "anti_patterns": raw_anti_patterns,
     }
 
-    constitution = initialize_constitution(answers, actor="local-setup")
+    north_star = initialize_north_star(answers, actor="local-setup")
 
     click.echo("\nInitializing guardian-memory branch…")
     store.ensure_initialized()
-    write_constitution(store, constitution, rationale="Initial constitution via init-local")
+    write_north_star(store, north_star, rationale="Initial North Star via init-local")
 
-    with store.session("guardian: initialize constitution via init-local"):
+    with store.session("guardian: initialize North Star via init-local"):
         pass
 
     click.echo(
-        f"\nConstitution written for '{project_name}' with "
-        f"{len(constitution.principles)} principles and "
-        f"{len(constitution.anti_patterns)} anti-patterns."
+        f"\nNorth Star written for '{project_name}' with "
+        f"{len(north_star.principles)} principles and "
+        f"{len(north_star.anti_patterns)} anti-patterns."
     )
     click.echo("Guardian is ready.")
 
@@ -730,13 +730,13 @@ def preview_dashboard(output: str, repo_root: str) -> None:
     store.ensure_initialized()
 
     try:
-        constitution = read_constitution(store)
+        north_star = read_north_star(store)
     except FileNotFoundError as err:
         raise click.ClickException(
-            "No Constitution found on guardian-memory. Run `guardian init-local` first."
+            "No North Star found on guardian-memory. Run `guardian init-local` first."
         ) from err
 
-    html = dashboard.render_dashboard(store, constitution)
+    html = dashboard.render_dashboard(store, north_star)
 
     out = Path(output)
     out.write_text(html, encoding="utf-8")

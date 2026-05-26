@@ -21,10 +21,10 @@ from guardian.dashboard import (
 )
 from guardian.models import (
     AntiPattern,
-    Constitution,
     DriftEvent,
     DriftSeverity,
     JournalEntry,
+    NorthStar,
     Principle,
     Saga,
     SagaStatus,
@@ -103,8 +103,8 @@ def _parse_html(html: str) -> _HTMLChecker:
 # ---------------------------------------------------------------------------
 
 
-def _make_constitution(project_name: str = "TestProject") -> Constitution:
-    return Constitution(
+def _make_north_star(project_name: str = "TestProject") -> NorthStar:
+    return NorthStar(
         project_name=project_name,
         identity_statement="An LLM-powered pipeline. Not a script collection.",
         principles=[
@@ -302,30 +302,30 @@ class TestGenerateQuadrant:
 
 class TestGenerateMindmap:
     def test_starts_with_mindmap_directive(self) -> None:
-        constitution = _make_constitution()
-        result = generate_mindmap(constitution, [])
+        north_star = _make_north_star()
+        result = generate_mindmap(north_star, [])
         assert result.strip().startswith("mindmap")
 
     def test_project_name_is_root(self) -> None:
-        constitution = _make_constitution("MyProject")
-        result = generate_mindmap(constitution, [])
+        north_star = _make_north_star("MyProject")
+        result = generate_mindmap(north_star, [])
         assert "MyProject" in result
 
     def test_principles_appear_as_branches(self) -> None:
-        constitution = _make_constitution()
-        result = generate_mindmap(constitution, [])
-        for p in constitution.principles:
+        north_star = _make_north_star()
+        result = generate_mindmap(north_star, [])
+        for p in north_star.principles:
             assert p.text[:20] in result
 
     def test_prs_attached_to_principles(self) -> None:
-        constitution = _make_constitution()
+        north_star = _make_north_star()
         journal = _make_journal_entries()
-        result = generate_mindmap(constitution, journal)
+        result = generate_mindmap(north_star, journal)
         # PR #1 mentions p1 in its body; it should appear somewhere in the chart
         assert "PR #1" in result
 
     def test_unattached_prs_go_to_unassigned(self) -> None:
-        constitution = _make_constitution()
+        north_star = _make_north_star()
         journal = [
             JournalEntry(
                 pr_number=99,
@@ -335,13 +335,13 @@ class TestGenerateMindmap:
                 body_markdown="No principle table here.",
             )
         ]
-        result = generate_mindmap(constitution, journal)
+        result = generate_mindmap(north_star, journal)
         assert "Unassigned" in result
         assert "PR #99" in result
 
     def test_empty_journal_valid(self) -> None:
-        constitution = _make_constitution()
-        result = generate_mindmap(constitution, [])
+        north_star = _make_north_star()
+        result = generate_mindmap(north_star, [])
         assert "mindmap" in result
 
 
@@ -418,42 +418,42 @@ class TestRenderDashboard:
 
     def test_returns_non_empty_string(self) -> None:
         store = self._make_store_with_data()
-        constitution = _make_constitution()
-        result = render_dashboard(store, constitution)
+        north_star = _make_north_star()
+        result = render_dashboard(store, north_star)
         assert isinstance(result, str)
         assert len(result) > 100
 
     def test_valid_html_no_parser_errors(self) -> None:
         store = self._make_store_with_data()
-        constitution = _make_constitution()
-        html = render_dashboard(store, constitution)
+        north_star = _make_north_star()
+        html = render_dashboard(store, north_star)
         checker = _parse_html(html)
         assert checker._errors == []
 
     def test_contains_html_and_body_tags(self) -> None:
         store = self._make_store_with_data()
-        constitution = _make_constitution()
-        html = render_dashboard(store, constitution)
+        north_star = _make_north_star()
+        html = render_dashboard(store, north_star)
         checker = _parse_html(html)
         assert "html" in checker.tags
         assert "body" in checker.tags
 
     def test_contains_project_name(self) -> None:
         store = self._make_store_with_data()
-        constitution = _make_constitution("AwesomeProject")
-        html = render_dashboard(store, constitution)
+        north_star = _make_north_star("AwesomeProject")
+        html = render_dashboard(store, north_star)
         assert "AwesomeProject" in html
 
     def test_contains_mermaid_cdn_script(self) -> None:
         store = self._make_store_with_data()
-        constitution = _make_constitution()
-        html = render_dashboard(store, constitution)
+        north_star = _make_north_star()
+        html = render_dashboard(store, north_star)
         assert "cdn.jsdelivr.net/npm/mermaid@10" in html
 
     def test_contains_four_chart_sections(self) -> None:
         store = self._make_store_with_data()
-        constitution = _make_constitution()
-        html = render_dashboard(store, constitution)
+        north_star = _make_north_star()
+        html = render_dashboard(store, north_star)
         # Section headings from the template
         assert "Saga Timeline" in html
         assert "Branch Topology" in html
@@ -462,27 +462,27 @@ class TestRenderDashboard:
 
     def test_contains_principles_in_sidebar(self) -> None:
         store = self._make_store_with_data()
-        constitution = _make_constitution()
-        html = render_dashboard(store, constitution)
-        for p in constitution.principles:
+        north_star = _make_north_star()
+        html = render_dashboard(store, north_star)
+        for p in north_star.principles:
             assert p.text[:20] in html
 
     def test_contains_generation_timestamp(self) -> None:
         store = self._make_store_with_data()
-        constitution = _make_constitution()
-        html = render_dashboard(store, constitution)
+        north_star = _make_north_star()
+        html = render_dashboard(store, north_star)
         assert "NorthStarGuardian" in html
 
     def test_written_to_store(self) -> None:
         store = self._make_store_with_data()
-        constitution = _make_constitution()
-        render_dashboard(store, constitution)
+        north_star = _make_north_star()
+        render_dashboard(store, north_star)
         assert store.exists("dashboard.html")
 
     def test_mermaid_directives_embedded(self) -> None:
         store = self._make_store_with_data()
-        constitution = _make_constitution()
-        html = render_dashboard(store, constitution)
+        north_star = _make_north_star()
+        html = render_dashboard(store, north_star)
         assert "gantt" in html
         assert "gitGraph" in html
         assert "quadrantChart" in html
@@ -490,14 +490,14 @@ class TestRenderDashboard:
 
     def test_light_dark_css_present(self) -> None:
         store = self._make_store_with_data()
-        constitution = _make_constitution()
-        html = render_dashboard(store, constitution)
+        north_star = _make_north_star()
+        html = render_dashboard(store, north_star)
         assert "prefers-color-scheme" in html
 
     def test_no_external_assets_except_mermaid(self) -> None:
         store = self._make_store_with_data()
-        constitution = _make_constitution()
-        html = render_dashboard(store, constitution)
+        north_star = _make_north_star()
+        html = render_dashboard(store, north_star)
         import re
         # Find all src= and href= attributes
         src_refs = re.findall(r'(?:src|href)=["\']([^"\']+)["\']', html)

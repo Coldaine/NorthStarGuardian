@@ -65,7 +65,7 @@
 }
 ---
 
-# LumenScout — Constitution
+# LumenScout — North Star
 
 ## Identity
 

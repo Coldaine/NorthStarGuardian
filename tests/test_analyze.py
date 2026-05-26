@@ -23,7 +23,7 @@ from guardian.analyze import (
 )
 from guardian.models import (
     AntiPattern,
-    Constitution,
+    NorthStar,
     Principle,
     Verdict,
 )
@@ -93,8 +93,8 @@ def simple_pr_meta() -> dict[str, Any]:
 
 
 @pytest.fixture()
-def constitution() -> Constitution:
-    return Constitution(
+def north_star() -> NorthStar:
+    return NorthStar(
         version=1,
         project_name="TestProject",
         identity_statement="This is an LLM-powered analysis pipeline. It is not a collection of standalone scripts.",
@@ -287,7 +287,7 @@ class TestParseVarianceTags:
 
 
 class TestEvaluateAlignment:
-    def _valid_response(self, constitution: Constitution) -> str:
+    def _valid_response(self, north_star: NorthStar) -> str:
         return json.dumps([
             {
                 "principle_id": "P1",
@@ -313,21 +313,21 @@ class TestEvaluateAlignment:
         ])
 
     def test_returns_one_entry_per_principle(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
-        client = _make_client(self._valid_response(constitution))
-        result = evaluate_alignment(diff, constitution, client=client, model="test")
+        client = _make_client(self._valid_response(north_star))
+        result = evaluate_alignment(diff, north_star, client=client, model="test")
         assert len(result) == 3
         ids = {e.principle_id for e in result}
         assert ids == {"P1", "P2", "P3"}
 
     def test_relevant_principle_has_verdict(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
-        client = _make_client(self._valid_response(constitution))
-        result = evaluate_alignment(diff, constitution, client=client, model="test")
+        client = _make_client(self._valid_response(north_star))
+        result = evaluate_alignment(diff, north_star, client=client, model="test")
         p1 = next(e for e in result if e.principle_id == "P1")
         assert p1.relevant is True
         assert p1.verdict == Verdict.ALIGNED
@@ -335,45 +335,45 @@ class TestEvaluateAlignment:
         assert p1.citations == ["src/main.py:5"]
 
     def test_irrelevant_principle_has_no_verdict(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
-        client = _make_client(self._valid_response(constitution))
-        result = evaluate_alignment(diff, constitution, client=client, model="test")
+        client = _make_client(self._valid_response(north_star))
+        result = evaluate_alignment(diff, north_star, client=client, model="test")
         p2 = next(e for e in result if e.principle_id == "P2")
         assert p2.relevant is False
         assert p2.verdict is None
         assert p2.reasoning is None
 
-    def test_prompt_contains_constitution_text(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+    def test_prompt_contains_north_star_text(
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
-        client = _make_client(self._valid_response(constitution))
-        evaluate_alignment(diff, constitution, client=client, model="test")
+        client = _make_client(self._valid_response(north_star))
+        evaluate_alignment(diff, north_star, client=client, model="test")
         call_args = client.messages.create.call_args
-        # The constitution identity statement must appear in the prompt
+        # The North Star identity statement must appear in the prompt
         prompt_text = str(call_args)
-        assert constitution.identity_statement in prompt_text
+        assert north_star.identity_statement in prompt_text
 
     def test_malformed_json_raises_llm_output_error(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = _make_client("not json at all {{{")
         with pytest.raises(LLMOutputError):
-            evaluate_alignment(diff, constitution, client=client, model="test")
+            evaluate_alignment(diff, north_star, client=client, model="test")
 
     def test_wrong_type_raises_llm_output_error(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = _make_client('{"wrong": "type"}')
         with pytest.raises(LLMOutputError):
-            evaluate_alignment(diff, constitution, client=client, model="test")
+            evaluate_alignment(diff, north_star, client=client, model="test")
 
     def test_invalid_verdict_raises_llm_output_error(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         bad_response = json.dumps([
@@ -386,10 +386,10 @@ class TestEvaluateAlignment:
         ])
         client = _make_client(bad_response)
         with pytest.raises(LLMOutputError):
-            evaluate_alignment(diff, constitution, client=client, model="test")
+            evaluate_alignment(diff, north_star, client=client, model="test")
 
     def test_missing_principle_gets_default_entry(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         """If the LLM omits a principle, evaluate_alignment fills in a default."""
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
@@ -399,23 +399,23 @@ class TestEvaluateAlignment:
              "reasoning": "ok", "citations": []},
         ])
         client = _make_client(partial)
-        result = evaluate_alignment(diff, constitution, client=client, model="test")
+        result = evaluate_alignment(diff, north_star, client=client, model="test")
         assert len(result) == 3
         missing = [e for e in result if e.principle_id in {"P2", "P3"}]
         for e in missing:
             assert e.relevant is False
 
     def test_json_inside_markdown_fence_accepted(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
-        fenced = "```json\n" + self._valid_response(constitution) + "\n```"
+        fenced = "```json\n" + self._valid_response(north_star) + "\n```"
         client = _make_client(fenced)
-        result = evaluate_alignment(diff, constitution, client=client, model="test")
+        result = evaluate_alignment(diff, north_star, client=client, model="test")
         assert len(result) == 3
 
     def test_drift_verdict_parsed(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         response = json.dumps([
@@ -427,7 +427,7 @@ class TestEvaluateAlignment:
              "reasoning": None, "citations": []},
         ])
         client = _make_client(response)
-        result = evaluate_alignment(diff, constitution, client=client, model="test")
+        result = evaluate_alignment(diff, north_star, client=client, model="test")
         p1 = next(e for e in result if e.principle_id == "P1")
         assert p1.verdict == Verdict.DRIFT
 
@@ -441,7 +441,7 @@ class TestDetectAntiPatterns:
     def test_empty_when_no_anti_patterns(
         self, simple_pr_meta: dict[str, Any]
     ) -> None:
-        empty_constitution = Constitution(
+        empty_north_star = NorthStar(
             version=1,
             project_name="Empty",
             identity_statement="Nothing here.",
@@ -452,12 +452,12 @@ class TestDetectAntiPatterns:
         )
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = MagicMock()
-        result = detect_anti_patterns(diff, empty_constitution, client=client, model="test")
+        result = detect_anti_patterns(diff, empty_north_star, client=client, model="test")
         assert result == []
         client.messages.create.assert_not_called()
 
     def test_returns_matches(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(MULTI_FILE_DIFF, simple_pr_meta)
         response = json.dumps([
@@ -465,40 +465,40 @@ class TestDetectAntiPatterns:
              "explanation": "Direct whisper import detected."},
         ])
         client = _make_client(response)
-        result = detect_anti_patterns(diff, constitution, client=client, model="test")
+        result = detect_anti_patterns(diff, north_star, client=client, model="test")
         assert len(result) == 1
         assert result[0].pattern_id == "AP2"
         assert result[0].location == "src/main.py:2"
 
     def test_empty_array_response_ok(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = _make_client("[]")
-        result = detect_anti_patterns(diff, constitution, client=client, model="test")
+        result = detect_anti_patterns(diff, north_star, client=client, model="test")
         assert result == []
 
     def test_prompt_contains_anti_pattern_descriptions(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = _make_client("[]")
-        detect_anti_patterns(diff, constitution, client=client, model="test")
+        detect_anti_patterns(diff, north_star, client=client, model="test")
         call_args = client.messages.create.call_args
         prompt_text = str(call_args)
         assert "AP1" in prompt_text
         assert "AP2" in prompt_text
 
     def test_malformed_json_raises_llm_output_error(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = _make_client("this is not json")
         with pytest.raises(LLMOutputError):
-            detect_anti_patterns(diff, constitution, client=client, model="test")
+            detect_anti_patterns(diff, north_star, client=client, model="test")
 
     def test_invented_pattern_id_skipped(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         response = json.dumps([
@@ -506,7 +506,7 @@ class TestDetectAntiPatterns:
              "explanation": "Made up."},
         ])
         client = _make_client(response)
-        result = detect_anti_patterns(diff, constitution, client=client, model="test")
+        result = detect_anti_patterns(diff, north_star, client=client, model="test")
         assert result == []
 
 
@@ -584,7 +584,7 @@ class TestAssessIntent:
 
 
 class TestRunInterview:
-    def _make_all_mock_client(self, constitution: Constitution) -> MagicMock:
+    def _make_all_mock_client(self, north_star: NorthStar) -> MagicMock:
         """Return a client that returns sensible JSON for each call in order."""
         intent_resp = json.dumps({
             "one_line": "Added analysis step.",
@@ -618,11 +618,11 @@ class TestRunInterview:
         return client
 
     def test_run_interview_returns_report(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
-        client = self._make_all_mock_client(constitution)
-        report = run_interview(diff, constitution, client=client, model="test",
+        client = self._make_all_mock_client(north_star)
+        report = run_interview(diff, north_star, client=client, model="test",
                                pr_meta=simple_pr_meta)
         assert report.pr_number == 42
         assert report.overall_verdict == Verdict.ALIGNED
@@ -631,7 +631,7 @@ class TestRunInterview:
         assert report.chronicle_paragraph != ""
 
     def test_run_interview_drift_aggregate(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         intent_resp = json.dumps({
@@ -665,11 +665,11 @@ class TestRunInterview:
             responses.append(resp)
 
         client.messages.create.side_effect = responses
-        report = run_interview(diff, constitution, client=client, model="test")
+        report = run_interview(diff, north_star, client=client, model="test")
         assert report.overall_verdict == Verdict.DRIFT
 
     def test_run_interview_ambiguous_aggregate(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         intent_resp = json.dumps({"one_line": "Cache layer added.", "paragraph": "..."})
@@ -694,15 +694,15 @@ class TestRunInterview:
 
         client = MagicMock()
         client.messages.create.side_effect = responses
-        report = run_interview(diff, constitution, client=client, model="test")
+        report = run_interview(diff, north_star, client=client, model="test")
         assert report.overall_verdict == Verdict.AMBIGUOUS
 
     def test_run_interview_makes_four_llm_calls(
-        self, constitution: Constitution, simple_pr_meta: dict[str, Any]
+        self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
     ) -> None:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
-        client = self._make_all_mock_client(constitution)
-        run_interview(diff, constitution, client=client, model="test",
+        client = self._make_all_mock_client(north_star)
+        run_interview(diff, north_star, client=client, model="test",
                       pr_meta=simple_pr_meta)
         # 1 assess_intent + 1 evaluate_alignment + 1 detect_anti_patterns + 1 chronicle
         assert client.messages.create.call_count == 4

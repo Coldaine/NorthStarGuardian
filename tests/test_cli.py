@@ -16,12 +16,12 @@ from click.testing import CliRunner
 
 from guardian.cli import cli, parse_slash_command
 from guardian.models import (
-    Constitution,
     DiffAnalysis,
     GuardianConfig,
     IntentSummary,
     InterviewReport,
     JournalEntry,
+    NorthStar,
     Principle,
     Verdict,
 )
@@ -103,8 +103,8 @@ class TestParseSlashCommand:
 # ---------------------------------------------------------------------------
 
 
-def _make_constitution() -> Constitution:
-    return Constitution(
+def _make_north_star() -> NorthStar:
+    return NorthStar(
         version=1,
         project_name="TestProject",
         identity_statement="This is a test project.",
@@ -154,7 +154,7 @@ class TestPreviewDashboard:
     def test_renders_html_file(self, tmp_path: Path) -> None:
         runner = CliRunner()
 
-        constitution = _make_constitution()
+        north_star = _make_north_star()
         html_content = "<html><body>dashboard</body></html>"
         output_file = tmp_path / "out.html"
 
@@ -169,7 +169,7 @@ class TestPreviewDashboard:
         try:
             with (
                 patch("guardian.cli.MemoryStore", return_value=mock_store),
-                patch("guardian.cli.read_constitution", return_value=constitution),
+                patch("guardian.cli.read_north_star", return_value=north_star),
             ):
                 result = runner.invoke(
                     cli,
@@ -186,7 +186,7 @@ class TestPreviewDashboard:
         # The output path should be mentioned in stdout.
         assert str(output_file.name) in result.output or "dashboard" in result.output.lower()
 
-    def test_errors_when_no_constitution(self, tmp_path: Path) -> None:
+    def test_errors_when_no_north_star(self, tmp_path: Path) -> None:
         runner = CliRunner()
 
         mock_store = MagicMock()
@@ -194,7 +194,7 @@ class TestPreviewDashboard:
 
         with (
             patch("guardian.cli.MemoryStore", return_value=mock_store),
-            patch("guardian.cli.read_constitution", side_effect=FileNotFoundError),
+            patch("guardian.cli.read_north_star", side_effect=FileNotFoundError),
         ):
             result = runner.invoke(
                 cli,
@@ -237,7 +237,7 @@ class TestInterview:
         event_file = tmp_path / "event.json"
         event_file.write_text(json.dumps(payload), encoding="utf-8")
 
-        constitution = _make_constitution()
+        north_star = _make_north_star()
         report = _make_report(42)
 
         mock_store = MagicMock()
@@ -269,7 +269,7 @@ class TestInterview:
             patch("guardian.cli.GitHubContext") as mock_ctx_cls,
             patch("guardian.cli.get_pr_diff", return_value="diff --git ..."),
             patch("guardian.cli.get_pr_meta", return_value={"number": 42, "title": "Add feature", "body": "", "author": "dev", "base_sha": "abc", "head_sha": "def"}),
-            patch("guardian.cli.read_constitution", return_value=constitution),
+            patch("guardian.cli.read_north_star", return_value=north_star),
             patch("guardian.cli._make_anthropic_client", return_value=MagicMock()),
             patch("guardian.cli._load_config", return_value=GuardianConfig()),
             patch("guardian.cli.post_pr_comment") as mock_post,

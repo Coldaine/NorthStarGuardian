@@ -10,12 +10,12 @@ from typing import Any
 
 import pytest
 
-from guardian.constitution import parse_constitution_markdown
 from guardian.dashboard import render_dashboard
-from guardian.models import AntiPattern, Constitution, Principle
+from guardian.models import AntiPattern, NorthStar, Principle
+from guardian.north_star import parse_north_star_markdown
 
 _EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
-_CONSTITUTION_FILE = _EXAMPLES_DIR / "sample-constitution.md"
+_NORTH_STAR_FILE = _EXAMPLES_DIR / "sample-north-star.md"
 _DASHBOARD_FILE = _EXAMPLES_DIR / "sample-dashboard.html"
 
 
@@ -55,12 +55,12 @@ def _dt(days_offset: int, hour: int = 10) -> datetime:
     return _DT_BASE + timedelta(days=days_offset, hours=hour - 10)
 
 
-def _seed_store() -> tuple[_FakeStore, Constitution]:
-    """Return a FakeStore pre-loaded with sagas, journal entries, and a constitution."""
+def _seed_store() -> tuple[_FakeStore, NorthStar]:
+    """Return a FakeStore pre-loaded with sagas, journal entries, and a North Star."""
     store = _FakeStore()
 
-    # -- Constitution --------------------------------------------------------
-    constitution = Constitution(
+    # -- North Star --------------------------------------------------------
+    north_star = NorthStar(
         version=1,
         project_name="LumenScout",
         identity_statement=(
@@ -263,12 +263,12 @@ def _seed_store() -> tuple[_FakeStore, Constitution]:
     ]
     store.write_json("drift-ledger.json", {"events": drift_events})
 
-    return store, constitution
+    return store, north_star
 
 
 @pytest.fixture(scope="module")
-def constitution() -> Constitution:
-    return parse_constitution_markdown(_CONSTITUTION_FILE.read_text(encoding="utf-8"))
+def north_star() -> NorthStar:
+    return parse_north_star_markdown(_NORTH_STAR_FILE.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
@@ -280,20 +280,20 @@ def dashboard_html() -> str:
     return _DASHBOARD_FILE.read_text(encoding="utf-8")
 
 
-def test_constitution_file_exists() -> None:
-    assert _CONSTITUTION_FILE.exists()
+def test_north_star_file_exists() -> None:
+    assert _NORTH_STAR_FILE.exists()
 
 
-def test_constitution_has_five_principles(constitution: Constitution) -> None:
-    assert len(constitution.principles) == 5
+def test_north_star_has_five_principles(north_star: NorthStar) -> None:
+    assert len(north_star.principles) == 5
 
 
-def test_constitution_has_three_anti_patterns(constitution: Constitution) -> None:
-    assert len(constitution.anti_patterns) == 3
+def test_north_star_has_three_anti_patterns(north_star: NorthStar) -> None:
+    assert len(north_star.anti_patterns) == 3
 
 
-def test_constitution_has_identity_statement(constitution: Constitution) -> None:
-    assert constitution.identity_statement.strip()
+def test_north_star_has_identity_statement(north_star: NorthStar) -> None:
+    assert north_star.identity_statement.strip()
 
 
 def test_dashboard_contains_mermaid_cdn(dashboard_html: str) -> None:

@@ -10,17 +10,17 @@
 #      and push to branches (Settings → Actions → General → Workflow permissions
 #      → "Read and write permissions").
 #   3. On first use, comment `/init-guardian` on any PR (or run
-#      `guardian init-local` in a local clone) to create the Constitution.
+#      `guardian init-local` in a local clone) to create the North Star.
 #
 # What the Guardian does:
 #   - On every PR open/update: runs an interview comparing the diff against
-#     your project Constitution and posts an advisory comment.
+#     your project North Star and posts an advisory comment.
 #   - On slash commands in PR comments: dispatches /init-guardian, /re-anchor,
 #     /amend, /chronicle, /dashboard, /status.
 #   - Daily: sweeps expired variance debt timers and opens a tracking issue.
 #
 # The Guardian NEVER modifies your source code or blocks merges.
-# All state (constitution, journal, dashboard) lives on a separate
+# All state (North Star, journal, dashboard) lives on a separate
 # `guardian-memory` orphan branch — invisible to your normal git history.
 
 name: Guardian

@@ -1,4 +1,4 @@
-"""Tests for guardian.constitution — constitutional I/O and amendment logic.
+"""Tests for guardian.north_star — North Star I/O and amendment logic.
 
 Uses FakeStore (from conftest.py) so no git or network activity occurs.
 """
@@ -9,16 +9,16 @@ from datetime import UTC, datetime
 
 import pytest
 
-from guardian.constitution import (
-    amend_constitution,
+from guardian.models import Amendment, AntiPattern, NorthStar, Principle
+from guardian.north_star import (
+    amend_north_star,
     append_amendment,
-    initialize_constitution,
-    parse_constitution_markdown,
-    read_constitution,
-    render_constitution_markdown,
-    write_constitution,
+    initialize_north_star,
+    parse_north_star_markdown,
+    read_north_star,
+    render_north_star_markdown,
+    write_north_star,
 )
-from guardian.models import Amendment, AntiPattern, Constitution, Principle
 from tests.conftest import FakeStore
 
 # ---------------------------------------------------------------------------
@@ -28,8 +28,8 @@ from tests.conftest import FakeStore
 _NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 
-def _sample_constitution() -> Constitution:
-    return Constitution(
+def _sample_north_star() -> NorthStar:
+    return NorthStar(
         version=1,
         project_name="TestProject",
         identity_statement="This is a test project. It is not a toy.",
@@ -56,66 +56,66 @@ def _sample_constitution() -> Constitution:
 
 class TestMarkdownRoundTrip:
     def test_render_and_parse_identity(self) -> None:
-        c = _sample_constitution()
-        md = render_constitution_markdown(c)
-        parsed = parse_constitution_markdown(md)
+        c = _sample_north_star()
+        md = render_north_star_markdown(c)
+        parsed = parse_north_star_markdown(md)
         assert parsed.identity_statement == c.identity_statement
 
     def test_render_and_parse_project_name(self) -> None:
-        c = _sample_constitution()
-        md = render_constitution_markdown(c)
-        parsed = parse_constitution_markdown(md)
+        c = _sample_north_star()
+        md = render_north_star_markdown(c)
+        parsed = parse_north_star_markdown(md)
         assert parsed.project_name == c.project_name
 
     def test_render_and_parse_principles(self) -> None:
-        c = _sample_constitution()
-        md = render_constitution_markdown(c)
-        parsed = parse_constitution_markdown(md)
+        c = _sample_north_star()
+        md = render_north_star_markdown(c)
+        parsed = parse_north_star_markdown(md)
         assert len(parsed.principles) == 2
         assert parsed.principles[0].id == "p1"
         assert parsed.principles[0].text == "All data flows through the LLM layer"
         assert parsed.principles[1].rationale == "No SaaS deps"
 
     def test_render_and_parse_anti_patterns(self) -> None:
-        c = _sample_constitution()
-        md = render_constitution_markdown(c)
-        parsed = parse_constitution_markdown(md)
+        c = _sample_north_star()
+        md = render_north_star_markdown(c)
+        parsed = parse_north_star_markdown(md)
         assert len(parsed.anti_patterns) == 1
         assert parsed.anti_patterns[0].id == "ap1"
         assert parsed.anti_patterns[0].example == "analyze.py reading a CSV directly"
         assert parsed.anti_patterns[0].detect == "import csv"
 
     def test_render_and_parse_version(self) -> None:
-        c = _sample_constitution()
-        md = render_constitution_markdown(c)
-        parsed = parse_constitution_markdown(md)
+        c = _sample_north_star()
+        md = render_north_star_markdown(c)
+        parsed = parse_north_star_markdown(md)
         assert parsed.version == 1
 
     def test_render_and_parse_architecture(self) -> None:
-        c = _sample_constitution()
-        md = render_constitution_markdown(c)
-        parsed = parse_constitution_markdown(md)
+        c = _sample_north_star()
+        md = render_north_star_markdown(c)
+        parsed = parse_north_star_markdown(md)
         assert "FastAPI" in parsed.approved_architecture
 
     def test_render_and_parse_amended_at(self) -> None:
-        c = _sample_constitution()
+        c = _sample_north_star()
         amended = c.model_copy(update={"amended_at": _NOW})
-        md = render_constitution_markdown(amended)
-        parsed = parse_constitution_markdown(md)
+        md = render_north_star_markdown(amended)
+        parsed = parse_north_star_markdown(md)
         assert parsed.amended_at is not None
 
     def test_parse_missing_frontmatter_raises(self) -> None:
         with pytest.raises(ValueError, match="frontmatter"):
-            parse_constitution_markdown("# No frontmatter here\n")
+            parse_north_star_markdown("# No frontmatter here\n")
 
     def test_render_contains_project_name_heading(self) -> None:
-        c = _sample_constitution()
-        md = render_constitution_markdown(c)
+        c = _sample_north_star()
+        md = render_north_star_markdown(c)
         assert "# TestProject" in md
 
     def test_render_contains_each_principle(self) -> None:
-        c = _sample_constitution()
-        md = render_constitution_markdown(c)
+        c = _sample_north_star()
+        md = render_north_star_markdown(c)
         assert "All data flows through the LLM layer" in md
         assert "Local-first always" in md
 
@@ -125,35 +125,35 @@ class TestMarkdownRoundTrip:
 # ---------------------------------------------------------------------------
 
 class TestReadWrite:
-    def test_write_and_read_constitution(self, fake_store: FakeStore) -> None:
-        c = _sample_constitution()
-        write_constitution(fake_store, c)
-        loaded = read_constitution(fake_store)
+    def test_write_and_read_north_star(self, fake_store: FakeStore) -> None:
+        c = _sample_north_star()
+        write_north_star(fake_store, c)
+        loaded = read_north_star(fake_store)
         assert loaded.project_name == c.project_name
         assert loaded.version == c.version
 
     def test_read_missing_raises(self, fake_store: FakeStore) -> None:
         with pytest.raises(FileNotFoundError):
-            read_constitution(fake_store)
+            read_north_star(fake_store)
 
     def test_write_stages_to_store(self, fake_store: FakeStore) -> None:
-        c = _sample_constitution()
-        write_constitution(fake_store, c)
-        assert fake_store.exists("constitution.md")
+        c = _sample_north_star()
+        write_north_star(fake_store, c)
+        assert fake_store.exists("north-star.md")
 
 
 # ---------------------------------------------------------------------------
-# amend_constitution
+# amend_north_star
 # ---------------------------------------------------------------------------
 
-class TestAmendConstitution:
-    def _store_with_constitution(self, fake_store: FakeStore) -> FakeStore:
-        write_constitution(fake_store, _sample_constitution())
+class TestAmendnorth_star:
+    def _store_with_north_star(self, fake_store: FakeStore) -> FakeStore:
+        write_north_star(fake_store, _sample_north_star())
         return fake_store
 
     def test_amend_identity(self, fake_store: FakeStore) -> None:
-        self._store_with_constitution(fake_store)
-        updated = amend_constitution(
+        self._store_with_north_star(fake_store)
+        updated = amend_north_star(
             fake_store,
             target="identity",
             target_id=None,
@@ -164,8 +164,8 @@ class TestAmendConstitution:
         assert updated.identity_statement == "Revised identity statement."
 
     def test_amend_identity_bumps_version(self, fake_store: FakeStore) -> None:
-        self._store_with_constitution(fake_store)
-        updated = amend_constitution(
+        self._store_with_north_star(fake_store)
+        updated = amend_north_star(
             fake_store,
             target="identity",
             target_id=None,
@@ -176,8 +176,8 @@ class TestAmendConstitution:
         assert updated.version == 2
 
     def test_amend_principle_text(self, fake_store: FakeStore) -> None:
-        self._store_with_constitution(fake_store)
-        updated = amend_constitution(
+        self._store_with_north_star(fake_store)
+        updated = amend_north_star(
             fake_store,
             target="principle",
             target_id="p1",
@@ -189,9 +189,9 @@ class TestAmendConstitution:
         assert p1.text == "Revised principle one text"
 
     def test_amend_principle_missing_id_raises(self, fake_store: FakeStore) -> None:
-        self._store_with_constitution(fake_store)
+        self._store_with_north_star(fake_store)
         with pytest.raises(ValueError, match="target_id is required"):
-            amend_constitution(
+            amend_north_star(
                 fake_store,
                 target="principle",
                 target_id=None,
@@ -201,9 +201,9 @@ class TestAmendConstitution:
             )
 
     def test_amend_principle_unknown_id_raises(self, fake_store: FakeStore) -> None:
-        self._store_with_constitution(fake_store)
+        self._store_with_north_star(fake_store)
         with pytest.raises(ValueError, match="not found"):
-            amend_constitution(
+            amend_north_star(
                 fake_store,
                 target="principle",
                 target_id="p99",
@@ -213,8 +213,8 @@ class TestAmendConstitution:
             )
 
     def test_amend_anti_pattern(self, fake_store: FakeStore) -> None:
-        self._store_with_constitution(fake_store)
-        updated = amend_constitution(
+        self._store_with_north_star(fake_store)
+        updated = amend_north_star(
             fake_store,
             target="anti_pattern",
             target_id="ap1",
@@ -226,8 +226,8 @@ class TestAmendConstitution:
         assert ap1.description == "Updated anti-pattern description"
 
     def test_amend_architecture(self, fake_store: FakeStore) -> None:
-        self._store_with_constitution(fake_store)
-        updated = amend_constitution(
+        self._store_with_north_star(fake_store)
+        updated = amend_north_star(
             fake_store,
             target="architecture",
             target_id=None,
@@ -238,9 +238,9 @@ class TestAmendConstitution:
         assert "Redis" in updated.approved_architecture
 
     def test_amend_unknown_target_raises(self, fake_store: FakeStore) -> None:
-        self._store_with_constitution(fake_store)
+        self._store_with_north_star(fake_store)
         with pytest.raises(ValueError, match="Unknown amendment target"):
-            amend_constitution(
+            amend_north_star(
                 fake_store,
                 target="unknown_field",
                 target_id=None,
@@ -250,8 +250,8 @@ class TestAmendConstitution:
             )
 
     def test_amend_sets_amended_at(self, fake_store: FakeStore) -> None:
-        self._store_with_constitution(fake_store)
-        updated = amend_constitution(
+        self._store_with_north_star(fake_store)
+        updated = amend_north_star(
             fake_store,
             target="identity",
             target_id=None,
@@ -262,8 +262,8 @@ class TestAmendConstitution:
         assert updated.amended_at is not None
 
     def test_amend_persists_to_store(self, fake_store: FakeStore) -> None:
-        self._store_with_constitution(fake_store)
-        amend_constitution(
+        self._store_with_north_star(fake_store)
+        amend_north_star(
             fake_store,
             target="identity",
             target_id=None,
@@ -271,7 +271,7 @@ class TestAmendConstitution:
             rationale="r",
             actor="alice",
         )
-        reloaded = read_constitution(fake_store)
+        reloaded = read_north_star(fake_store)
         assert reloaded.identity_statement == "Persisted identity."
 
 
@@ -324,10 +324,10 @@ class TestAmendmentLog:
 
 
 # ---------------------------------------------------------------------------
-# initialize_constitution
+# initialize_north_star
 # ---------------------------------------------------------------------------
 
-class TestInitializeConstitution:
+class TestInitializenorth_star:
     def _answers(self) -> dict:
         return {
             "project_name": "MyProject",
@@ -343,16 +343,16 @@ class TestInitializeConstitution:
             ],
         }
 
-    def test_returns_constitution(self) -> None:
-        c = initialize_constitution(self._answers(), actor="alice")
-        assert isinstance(c, Constitution)
+    def test_returns_north_star(self) -> None:
+        c = initialize_north_star(self._answers(), actor="alice")
+        assert isinstance(c, NorthStar)
 
     def test_project_name(self) -> None:
-        c = initialize_constitution(self._answers(), actor="alice")
+        c = initialize_north_star(self._answers(), actor="alice")
         assert c.project_name == "MyProject"
 
     def test_principles_from_strings(self) -> None:
-        c = initialize_constitution(self._answers(), actor="alice")
+        c = initialize_north_star(self._answers(), actor="alice")
         assert len(c.principles) == 3
         assert c.principles[0].text == "All analysis flows through the LLM"
         assert c.principles[0].id == "p1"
@@ -363,12 +363,12 @@ class TestInitializeConstitution:
         answers["principles"] = [
             {"id": "custom-1", "rank": 1, "text": "LLM-first", "rationale": "Core value"},
         ]
-        c = initialize_constitution(answers, actor="alice")
+        c = initialize_north_star(answers, actor="alice")
         assert c.principles[0].id == "custom-1"
         assert c.principles[0].rationale == "Core value"
 
     def test_anti_patterns_from_dicts(self) -> None:
-        c = initialize_constitution(self._answers(), actor="alice")
+        c = initialize_north_star(self._answers(), actor="alice")
         assert len(c.anti_patterns) == 1
         assert c.anti_patterns[0].id == "ap1"
         assert c.anti_patterns[0].example == "analyze.py"
@@ -376,21 +376,21 @@ class TestInitializeConstitution:
     def test_anti_patterns_from_strings(self) -> None:
         answers = self._answers()
         answers["anti_patterns"] = ["Rogue scripts", "Inline SQL"]
-        c = initialize_constitution(answers, actor="alice")
+        c = initialize_north_star(answers, actor="alice")
         assert len(c.anti_patterns) == 2
         assert c.anti_patterns[0].description == "Rogue scripts"
         assert c.anti_patterns[0].id == "ap1"
 
     def test_version_starts_at_one(self) -> None:
-        c = initialize_constitution(self._answers(), actor="alice")
+        c = initialize_north_star(self._answers(), actor="alice")
         assert c.version == 1
 
     def test_created_at_is_set(self) -> None:
-        c = initialize_constitution(self._answers(), actor="alice")
+        c = initialize_north_star(self._answers(), actor="alice")
         assert c.created_at is not None
 
     def test_no_anti_patterns_key(self) -> None:
         answers = self._answers()
         del answers["anti_patterns"]
-        c = initialize_constitution(answers, actor="alice")
+        c = initialize_north_star(answers, actor="alice")
         assert c.anti_patterns == []

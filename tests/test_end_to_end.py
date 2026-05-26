@@ -15,9 +15,9 @@ import pytest
 
 from guardian.analyze import analyze_diff, run_interview
 from guardian.chronicle import assign_saga, update_saga, write_journal_entry
-from guardian.constitution import initialize_constitution, write_constitution
 from guardian.dashboard import render_dashboard
 from guardian.memory import MemoryStore
+from guardian.north_star import initialize_north_star, write_north_star
 
 
 def _git(args: list[str], cwd: Path) -> str:
@@ -119,7 +119,7 @@ def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
     store = MemoryStore(repo)
     store.ensure_initialized()
 
-    constitution = initialize_constitution(
+    north_star = initialize_north_star(
         {
             "project_name": "TestProject",
             "identity_statement": (
@@ -147,8 +147,8 @@ def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
         },
         actor="test-setup",
     )
-    write_constitution(store, constitution, rationale="Initial constitution for E2E test")
-    store.commit_and_push("chore: seed constitution for E2E test", push=True)
+    write_north_star(store, north_star, rationale="Initial North Star for E2E test")
+    store.commit_and_push("chore: seed North Star for E2E test", push=True)
 
     return repo, store
 
@@ -157,21 +157,21 @@ def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
 def test_full_pr_interview_cycle(
     repo_and_store: tuple[Path, MemoryStore], verdict: str,
 ) -> None:
-    from guardian.constitution import read_constitution
+    from guardian.north_star import read_north_star
 
     _repo, store = repo_and_store
     diff_analysis = analyze_diff(SAMPLE_DIFF, PR_META)
     assert diff_analysis.pr_number == 42
     assert len(diff_analysis.files) == 1
 
-    constitution = read_constitution(store)
-    principle_ids = [p.id for p in constitution.principles]
+    north_star = read_north_star(store)
+    principle_ids = [p.id for p in north_star.principles]
     assert len(principle_ids) == 5
 
     client = _build_mock_client(principle_ids, verdict=verdict)
 
     report = run_interview(
-        diff_analysis, constitution, client=client, model="claude-test-mock", pr_meta=PR_META,
+        diff_analysis, north_star, client=client, model="claude-test-mock", pr_meta=PR_META,
     )
     assert report.pr_number == 42
     assert report.overall_verdict.value == verdict
@@ -194,7 +194,7 @@ def test_full_pr_interview_cycle(
     assert entry.pr_number == 42
     assert entry.saga_id == saga.id
 
-    html = render_dashboard(store, constitution)
+    html = render_dashboard(store, north_star)
     assert html
 
     journal_files = store.list("journal/")

@@ -3,50 +3,19 @@ sample-dashboard.html deterministically when missing."""
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from guardian.constitution import parse_constitution_markdown
 from guardian.dashboard import render_dashboard
 from guardian.models import AntiPattern, Constitution, Principle
+from tests.conftest import FakeStore
 
 _EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 _CONSTITUTION_FILE = _EXAMPLES_DIR / "sample-constitution.md"
 _DASHBOARD_FILE = _EXAMPLES_DIR / "sample-dashboard.html"
-
-
-class _FakeStore:
-    """In-memory stand-in for MemoryStore used only for dashboard generation."""
-
-    def __init__(self) -> None:
-        self._files: dict[str, str] = {}
-
-    def read(self, path: str) -> str:
-        if path not in self._files:
-            raise FileNotFoundError(f"fake-store:{path}")
-        return self._files[path]
-
-    def read_json(self, path: str) -> Any:
-        return json.loads(self.read(path))
-
-    def exists(self, path: str) -> bool:
-        return path in self._files
-
-    def write(self, path: str, content: str, message: str = "") -> None:
-        self._files[path] = content
-
-    def write_json(self, path: str, obj: Any, message: str = "") -> None:
-        self._files[path] = json.dumps(obj, indent=2, default=str)
-
-    def list(self, prefix: str = "") -> list[str]:
-        if prefix:
-            return sorted(k for k in self._files if k.startswith(prefix))
-        return sorted(self._files.keys())
-
 
 _DT_BASE = datetime(2026, 2, 1, 10, 0, 0, tzinfo=UTC)
 
@@ -55,9 +24,9 @@ def _dt(days_offset: int, hour: int = 10) -> datetime:
     return _DT_BASE + timedelta(days=days_offset, hours=hour - 10)
 
 
-def _seed_store() -> tuple[_FakeStore, Constitution]:
+def _seed_store() -> tuple[FakeStore, Constitution]:
     """Return a FakeStore pre-loaded with sagas, journal entries, and a constitution."""
-    store = _FakeStore()
+    store = FakeStore()
 
     # -- Constitution --------------------------------------------------------
     constitution = Constitution(

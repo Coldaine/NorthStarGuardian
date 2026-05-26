@@ -460,6 +460,7 @@ def assess_intent(
     *,
     client: Any,
     model: str,
+    constitution: Constitution | None = None,
 ) -> IntentSummary:
     """Infer the developer's goal from PR metadata via a single LLM call.
 
@@ -473,6 +474,9 @@ def assess_intent(
         ``commit_messages`` (list[str]), ``author``, ``number``.
     diff:
         DiffAnalysis for context injected into the prompt.
+    constitution:
+        Optional Constitution to inject into the prompt.  When omitted a
+        minimal placeholder is used so the prompt stays well-formed.
 
     Returns
     -------
@@ -491,58 +495,7 @@ def assess_intent(
 
     prompt = _render(
         "assess_intent.md.j2",
-        constitution=_DUMMY_CONSTITUTION_FOR_INTENT,  # placeholder; real one passed by run_interview
-        pr_meta=pr_meta,
-        diff=diff,
-    )
-
-    raw = _call_llm(
-        client,
-        model=model,
-        system=(
-            "You are the Repository Guardian. Follow the instructions exactly. "
-            "Return only valid JSON with no preamble."
-        ),
-        user=prompt,
-        max_tokens=1024,
-    )
-
-    data = _parse_json_response(raw, "assess_intent")
-    if not isinstance(data, dict):
-        raise LLMOutputError(
-            f"assess_intent expected a JSON object, got {type(data).__name__}"
-        )
-
-    one_line = str(data.get("one_line", ""))
-    paragraph = str(data.get("paragraph", ""))
-
-    if not one_line:
-        raise LLMOutputError("assess_intent: LLM returned empty 'one_line' field")
-
-    return IntentSummary(
-        one_line=one_line,
-        paragraph=paragraph,
-        declared_variances=declared_variances,
-    )
-
-
-def assess_intent_with_constitution(
-    pr_meta: dict[str, Any],
-    diff: DiffAnalysis,
-    constitution: Constitution,
-    *,
-    client: Any,
-    model: str,
-) -> IntentSummary:
-    """Variant of :func:`assess_intent` that injects the real Constitution into
-    the prompt.  Called by :func:`run_interview`; public callers may use either.
-    """
-    body_text = pr_meta.get("body") or ""
-    declared_variances = _parse_variance_tags(body_text)
-
-    prompt = _render(
-        "assess_intent.md.j2",
-        constitution=constitution,
+        constitution=constitution or _DUMMY_CONSTITUTION_FOR_INTENT,
         pr_meta=pr_meta,
         diff=diff,
     )
@@ -688,12 +641,12 @@ def run_interview(
     }
 
     # Step 1 — intent
-    intent = assess_intent_with_constitution(
+    intent = assess_intent(
         _merged_meta,
         diff,
-        constitution,
         client=client,
         model=model,
+        constitution=constitution,
     )
 
     # Step 2 — alignment

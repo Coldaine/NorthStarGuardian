@@ -12,8 +12,6 @@ import textwrap
 from datetime import UTC, datetime
 from typing import Any
 
-from jinja2 import Environment, PackageLoader
-
 from guardian.memory import MemoryStore
 from guardian.models import Amendment, AntiPattern, Constitution, Principle
 
@@ -338,17 +336,3 @@ def initialize_constitution(answers: dict[str, Any], actor: str) -> Constitution
     )
 
 
-# ---------------------------------------------------------------------------
-# Jinja2 template rendering (used by CLI)
-# ---------------------------------------------------------------------------
-
-def render_constitution_template(answers: dict[str, Any]) -> str:
-    """Render the Jinja2 skeleton template with *answers* for preview/editing."""
-    env = Environment(
-        loader=PackageLoader("guardian", "templates"),
-        autoescape=False,
-        trim_blocks=True,
-        lstrip_blocks=True,
-    )
-    template = env.get_template("constitution.md.j2")
-    return template.render(**answers)

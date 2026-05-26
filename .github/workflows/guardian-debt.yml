@@ -4,12 +4,9 @@ on:
   schedule:
     # Run daily at 12:00 UTC.
     - cron: "0 12 * * *"
-  # Allow manual trigger for testing.
-  workflow_dispatch:
 
 permissions:
   contents: write
-  issues: write
 
 jobs:
   sweep-debt:
@@ -36,8 +33,5 @@ jobs:
 
       - name: Run debt sweep
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_WORKSPACE: ${{ github.workspace }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
         run: guardian sweep-debt

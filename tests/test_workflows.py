@@ -114,9 +114,9 @@ class TestGuardianWorkflow:
         jobs = self._data().get("jobs", {})
         assert "interview" in jobs, "guardian.yml: missing 'interview' job"
 
-    def test_has_command_job(self) -> None:
+    def test_has_no_command_job(self) -> None:
         jobs = self._data().get("jobs", {})
-        assert "command" in jobs, "guardian.yml: missing 'command' job"
+        assert "command" not in jobs, "guardian.yml must not expose slash commands"
 
     def test_trigger_has_pull_request(self) -> None:
         trigger = _get_trigger(self._data())
@@ -124,10 +124,10 @@ class TestGuardianWorkflow:
             "guardian.yml: trigger must declare 'pull_request'"
         )
 
-    def test_trigger_has_issue_comment(self) -> None:
+    def test_trigger_has_no_issue_comment(self) -> None:
         trigger = _get_trigger(self._data())
-        assert isinstance(trigger, dict) and "issue_comment" in trigger, (
-            "guardian.yml: trigger must declare 'issue_comment'"
+        assert isinstance(trigger, dict) and "issue_comment" not in trigger, (
+            "guardian.yml must not react to human comment commands"
         )
 
 

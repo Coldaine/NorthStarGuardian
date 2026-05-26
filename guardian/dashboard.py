@@ -330,15 +330,15 @@ def render_dashboard(store: MemoryStore, constitution: Constitution) -> str:
 def _load_all_sagas(store: MemoryStore) -> list[Saga]:
     """Load all sagas from the saga index."""
     from guardian.chronicle import (  # local import to avoid circular
-        _load_saga_index,
-        _saga_from_index_entry,
+        load_saga_index,
+        saga_from_index_entry,
     )
 
-    index = _load_saga_index(store)
+    index = load_saga_index(store)
     sagas: list[Saga] = []
     for entry in index.get("sagas", []):
         try:
-            sagas.append(_saga_from_index_entry(entry))
+            sagas.append(saga_from_index_entry(entry))
         except (KeyError, ValueError):
             continue
     return sagas

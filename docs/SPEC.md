@@ -56,8 +56,9 @@ These are the goals Patrick articulated directly:
 4. **Maintain a visualization** — Specifically mentioned Mermaid charts as an option.
 5. **Keep a journal** — Narrative record of what happened and why.
 6. **Hold tenets established at project start** — The project's principles, set early, referenced throughout.
-7. **Provide a slash command to set or re-anchor tenets** — A guided setup flow, re-runnable.
-8. **Store memory in a way that's isolated** — Convenient but protected from accidental overwrites or merge conflicts with main development.
+7. **Provide an initial guided North Star interview** — A deliberate setup flow for establishing tenets, with rare agent-side re-anchoring when the project identity genuinely changes.
+8. **Stay agent-side exclusive after setup** — No ongoing human slash-command interface. Humans should normally see the Guardian only in PR comments and the initial North Star interview.
+9. **Store memory in a way that's isolated** — Convenient but protected from accidental overwrites or merge conflicts with main development.
 
 ### User-Stated Features (Explicit)
 
@@ -100,7 +101,7 @@ These are ideas I introduced that Patrick did not explicitly request. Flagged fo
 | **Interview vs. Review framing** | Calling it an "interview" rather than a "review" | Emphasizes that the focus is project fit, not code correctness |
 | **Interview Report structure** | Five-part report: alignment summary, principle check, saga assignment, suggestions, chronicle entry | Standardizes output format |
 | **Dashboard as `dashboard.html`** | Single self-contained HTML file with all Mermaid visualizations | Makes the dashboard portable and easy to serve |
-| **Slash commands beyond `/init`** | `/re-anchor`, `/amend`, `/chronicle`, `/dashboard`, `/status` | Expands the interaction surface for ongoing governance |
+| **Ongoing slash-command surface** | `/re-anchor`, `/amend`, `/chronicle`, `/dashboard`, `/status` | **Rejected after owner clarification.** It makes the Guardian human-operated instead of agent-side exclusive. |
 | **Tool specifications table** | 18 tools across 6 categories with inputs/outputs/triggers | Provides implementation roadmap |
 | **"Knowledgeable colleague" framing** | The Guardian is a colleague with perfect memory, not a cheerleader or cop | Sets the behavioral tone |
 | **Anti-Patterns Registry** | Explicit examples of what drift looks like, stored in the Constitution | Makes drift detection concrete and project-specific |
@@ -120,7 +121,7 @@ Patrick asked how the Guardian would actually write to the orphan branch and dis
 
 Nothing was explicitly discarded. The conversation was additive throughout. One implicit non-goal:
 
-- **Blocking merges** — Patrick stated "no blocking authority" early on. The Variance Protocol's escalation can eventually block, but this is a last resort for unresolved debt, not the default posture.
+- **Blocking merges** — Patrick stated "no blocking authority" early on. Variance escalation may raise visibility in memory and future PR comments, but must not become a merge gate by default.
 
 ---
 
@@ -157,7 +158,7 @@ Every pull request triggers an **interview**, not a review. The distinction:
 | **Focus** | "Is the code correct?" | "Does this code belong in *this* project?" |
 | **Scope** | Changed lines | Changed lines in context of the Constitution |
 | **Tone** | Approve / Request Changes | Matter-of-fact alignment check / Curious inquiry on drift |
-| **Authority** | Blocking | Advisory by default, blocking only for declared drift |
+| **Authority** | Blocking | Advisory only; never a merge gate by default |
 | **Output** | Line comments | A structured Interview Report |
 
 ### Interview Report Structure
@@ -241,9 +242,9 @@ The Guardian supports intentional deviation. It is not a tyrant.
   `[VARIANCE: Principle 3 — hotfix for production outage, will revert within 7 days]`
 - **Debt Timers**: Every variance creates a timed obligation. The Guardian tracks these and escalates if unresolved.
 - **Escalation Levels**:
-  1. Neutral reminder at 75% of timer
-  2. Firm reminder at expiration
-  3. Blocks future PRs that touch the same area if still unresolved
+   - Neutral reminder at 75% of timer
+   - Firm reminder at expiration
+   - Records unresolved debt prominently for future PR interviews that touch the same area
 
 ---
 
@@ -288,8 +289,8 @@ A `git log main` shows **zero** Guardian artifacts. They are permanently preserv
 | Tool | Purpose | Inputs | Outputs | Trigger |
 |---|---|---|---|---|
 | `read_constitution` | Retrieve current tenets and identity | — | Full constitution document | Every PR interview |
-| `amend_constitution` | Modify a principle or anti-pattern | Principle ID, new text, rationale | Updated constitution + amendment log entry | `/amend` command only |
-| `initialize_constitution` | Guided walkthrough for first-time setup | Interactive Q&A | Complete `constitution.md` | `/init-guardian` command |
+| `amend_constitution` | Modify a principle or anti-pattern | Principle ID, new text, rationale | Updated constitution + amendment log entry | Rare agent-side North Star maintenance only |
+| `initialize_constitution` | Guided walkthrough for first-time setup | Interactive Q&A | Complete `constitution.md` | Initial local North Star interview |
 
 ### 7.2 Analysis Tools
 
@@ -307,7 +308,7 @@ A `git log main` shows **zero** Guardian artifacts. They are permanently preserv
 | `write_journal_entry` | Compose and append a narrative entry | Interview report, saga context | Timestamped entry in `journal/` | After every interview |
 | `assign_saga` | Determine which saga a PR belongs to (or create one) | PR intent summary, existing sagas | Saga assignment | Every PR interview |
 | `update_saga` | Add PR to saga history, update status | Saga ID, PR reference, status | Updated saga file | After assignment |
-| `read_chronicle` | Retrieve filtered project history | Optional: date range, saga, drift-only | Journal entries, saga summaries | `/chronicle` command |
+| `read_chronicle` | Retrieve filtered project history | Optional: date range, saga, drift-only | Journal entries, saga summaries | Internal dashboard/status generation |
 
 ### 7.4 Visualization Tools
 
@@ -362,7 +363,7 @@ Different outputs need different access patterns:
 | **Dashboard** | GitHub Pages | Point Pages at `guardian-memory` branch. Dashboard lives at `https://org.github.io/repo/dashboard.html`. |
 | **Journal / Sagas** | GitHub file browser | Switch to `guardian-memory` branch in UI. GitHub renders Markdown natively. |
 | **Constitution** | GitHub file browser | Same — browse to `guardian-memory/constitution.md`. |
-| **On-demand via slash command** | PR comment or issue | `/dashboard` or `/chronicle` triggers Guardian to post content into the current context. |
+| **Ongoing command surface** | None | No slash commands, issue commands, or human-operated command menu. The Guardian remains autonomous after setup. |
 
 ### Workflow Sequence
 
@@ -396,16 +397,25 @@ Different outputs need different access patterns:
 
 ---
 
-## 9. Slash Commands
+## 9. Interface Boundaries
 
-| Command | Purpose | Flow |
+The Guardian is autonomous after setup. It does **not** expose slash commands, issue-comment commands, or a standing human control panel.
+
+Allowed surfaces:
+
+| Surface | Purpose | Boundary |
 |---|---|---|
-| `/init-guardian` | First-time setup | Guided interview: project identity → principles → approved architecture → anti-patterns → generates `constitution.md` |
-| `/re-anchor` | Refresh or refocus tenets | Same flow as init, shows current values, asks what changed |
-| `/amend [principle]` | Modify a specific tenet | Shows current text, accepts replacement + rationale, logs amendment |
-| `/chronicle` | View project history | Options: full / by-saga / by-date-range / drift-only |
-| `/dashboard` | Regenerate visualization dashboard | Triggers full render |
-| `/status` | Quick health check | Active sagas, open debt timers, last interview, drift trend |
+| Initial North Star interview | Establish the Constitution once | Deliberate setup flow, run locally or by an agent with owner participation |
+| PR comments | Deliver the advisory Interview Report | Triggered only by pull request events |
+| `guardian-memory` branch | Persist constitution, journal, sagas, drift ledger, debt timers, dashboard | Written only by the Guardian agent |
+| Optional GitHub Pages dashboard | Passive visualization | Updated by the agent; not a command surface |
+
+Disallowed surfaces:
+
+- No `/init-guardian`, `/re-anchor`, `/amend`, `/chronicle`, `/dashboard`, or `/status` comments.
+- No `issue_comment` workflow trigger for operating the Guardian.
+- No scheduled creation of tracking issues just to report Guardian state.
+- No merge blocking unless a repository owner explicitly opts into a stricter policy outside the default North Star.
 
 ---
 

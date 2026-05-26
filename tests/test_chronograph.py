@@ -99,6 +99,33 @@ def test_apply_plan_recomputes_auto_apply_from_source_action(tmp_path: Path) -> 
     assert target.read_text(encoding="utf-8") == before
 
 
+def test_apply_plan_rejects_tampered_backup_path(tmp_path: Path) -> None:
+    target = tmp_path / ".codex" / "AGENTS.md"
+    target.parent.mkdir()
+    before = "Always commit when feasible.\n"
+    target.write_text(before, encoding="utf-8")
+    action = StewardshipAction(
+        id="repair-missing-rtk",
+        action_class=ActionClass.REPAIR,
+        target_path=str(target),
+        before=before,
+        after=before + "@C:\\Users\\pmacl\\.codex\\RTK.md\n",
+        reason="The diff showed AGENTS.md missing the durable RTK include.",
+        confidence=0.96,
+        metadata={"operation": "add_missing_include", "include": "@C:\\Users\\pmacl\\.codex\\RTK.md"},
+    )
+    policy = ChronographSafetyPolicy.for_repo(tmp_path)
+    plan = build_apply_plan([action], policy=policy, now=NOW)
+    tampered = plan[0].model_copy(update={"backup_path": str(tmp_path / "outside.bak")})
+
+    results = apply_plan([tampered], policy=policy, actions=[action], now=NOW)
+
+    assert not results[0].applied
+    assert results[0].skipped_reason == "plan does not match source action"
+    assert target.read_text(encoding="utf-8") == before
+    assert not (tmp_path / "outside.bak").exists()
+
+
 def test_apply_plan_skips_when_live_target_changed_since_planning(tmp_path: Path) -> None:
     target = tmp_path / ".codex" / "AGENTS.md"
     target.parent.mkdir()
@@ -176,6 +203,81 @@ def test_arbitrary_missing_include_is_not_auto_applied(tmp_path: Path) -> None:
     assert not plan[0].auto_apply
 
 
+def test_metadata_cannot_claim_rtk_include_for_arbitrary_added_line(tmp_path: Path) -> None:
+    target = tmp_path / ".codex" / "AGENTS.md"
+    target.parent.mkdir()
+    before = "Always commit when feasible.\n"
+    target.write_text(before, encoding="utf-8")
+    action = StewardshipAction(
+        id="repair-metadata-lie",
+        action_class=ActionClass.REPAIR,
+        target_path=str(target),
+        before=before,
+        after=before + "@C:\\tmp\\UNREVIEWED.md\n",
+        reason="The metadata claims this is an RTK include.",
+        confidence=0.96,
+        metadata={"operation": "add_missing_include", "include": "@C:\\Users\\pmacl\\.codex\\RTK.md"},
+    )
+
+    plan = build_apply_plan(
+        [action],
+        policy=ChronographSafetyPolicy.for_repo(tmp_path),
+        now=NOW,
+    )
+
+    assert not plan[0].auto_apply
+
+
+def test_non_canonical_rtk_include_path_is_not_auto_applied(tmp_path: Path) -> None:
+    target = tmp_path / ".codex" / "AGENTS.md"
+    target.parent.mkdir()
+    before = "Always commit when feasible.\n"
+    target.write_text(before, encoding="utf-8")
+    action = StewardshipAction(
+        id="repair-noncanonical-rtk",
+        action_class=ActionClass.REPAIR,
+        target_path=str(target),
+        before=before,
+        after=before + "@C:\\tmp\\RTK.md\n",
+        reason="The diff adds an RTK-named include from an unknown path.",
+        confidence=0.96,
+        metadata={"operation": "add_missing_include", "include": "@C:\\tmp\\RTK.md"},
+    )
+
+    plan = build_apply_plan(
+        [action],
+        policy=ChronographSafetyPolicy.for_repo(tmp_path),
+        now=NOW,
+    )
+
+    assert not plan[0].auto_apply
+
+
+def test_only_missing_rtk_include_operation_auto_applies(tmp_path: Path) -> None:
+    target = tmp_path / ".codex" / "settings.json"
+    target.parent.mkdir()
+    before = "{}\n"
+    target.write_text(before, encoding="utf-8")
+    action = StewardshipAction(
+        id="normalize-setting",
+        action_class=ActionClass.REPAIR,
+        target_path=str(target),
+        before=before,
+        after='{"safe": true}\n',
+        reason="Known-safe settings normalization.",
+        confidence=0.99,
+        metadata={"operation": "normalize_known_safe_setting"},
+    )
+
+    plan = build_apply_plan(
+        [action],
+        policy=ChronographSafetyPolicy.for_repo(tmp_path),
+        now=NOW,
+    )
+
+    assert not plan[0].auto_apply
+
+
 def test_new_file_apply_plan_uses_remove_item_rollback(tmp_path: Path) -> None:
     target = tmp_path / ".codex" / "AGENTS.md"
     action = StewardshipAction(
@@ -207,6 +309,22 @@ def test_sqlite_state_files_are_forbidden_by_suffix(tmp_path: Path) -> None:
         target_path=str(target),
         before="",
         after="sqlite bytes",
+        reason="Should never be allowed.",
+        confidence=1.0,
+    )
+
+    with pytest.raises(ValueError, match="forbidden"):
+        build_apply_plan([action], policy=ChronographSafetyPolicy.for_repo(tmp_path), now=NOW)
+
+
+def test_sqlite_sidecar_files_are_forbidden(tmp_path: Path) -> None:
+    target = tmp_path / ".codex" / "memory" / "state.sqlite-wal"
+    action = StewardshipAction(
+        id="bad-sqlite-sidecar-write",
+        action_class=ActionClass.REPAIR,
+        target_path=str(target),
+        before="",
+        after="sqlite wal bytes",
         reason="Should never be allowed.",
         confidence=1.0,
     )

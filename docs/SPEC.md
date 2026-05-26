@@ -56,9 +56,8 @@ These are the goals Patrick articulated directly:
 4. **Maintain a visualization** — Specifically mentioned Mermaid charts as an option.
 5. **Keep a journal** — Narrative record of what happened and why.
 6. **Hold tenets established at project start** — The project's principles, set early, referenced throughout.
-7. **Provide an initial guided North Star interview** — A deliberate setup flow for establishing tenets, with rare agent-side re-anchoring when the project identity genuinely changes.
-8. **Stay agent-side exclusive after setup** — No ongoing human slash-command interface. Humans should normally see the Guardian only in PR comments and the initial North Star interview.
-9. **Store memory in a way that's isolated** — Convenient but protected from accidental overwrites or merge conflicts with main development.
+7. **Provide a slash command to set or re-anchor tenets** — A guided setup flow, re-runnable.
+8. **Store memory in a way that's isolated** — Convenient but protected from accidental overwrites or merge conflicts with main development.
 
 ### User-Stated Features (Explicit)
 
@@ -82,7 +81,7 @@ These are ideas Patrick mentioned that I shaped into more specific structures:
 
 | Concept | Patrick's Framing | My Refinement |
 |---|---|---|
-| "Tenets" | Principles set at project start | Formalized as a **Constitution** with identity statement, 5–7 ranked principles, approved architecture map, and anti-patterns registry |
+| "Tenets" | Principles set at project start | Formalized as a **North Star** with identity statement, 5–7 ranked principles, approved architecture map, and anti-patterns registry |
 | "Visualization" | Mentioned Mermaid charts | Specified four chart types: Gantt (saga timelines), GitGraph (branching + drift), Quadrant (value vs. debt), Mindmap (changes → principles) |
 | "Journal" | Write about progress | Structured as append-only narrative entries, one per PR, with saga assignment |
 | "Isolated memory" | Separate from main project | Specified as a **git orphan branch** (`guardian-memory`) with defined file structure |
@@ -101,10 +100,10 @@ These are ideas I introduced that Patrick did not explicitly request. Flagged fo
 | **Interview vs. Review framing** | Calling it an "interview" rather than a "review" | Emphasizes that the focus is project fit, not code correctness |
 | **Interview Report structure** | Five-part report: alignment summary, principle check, saga assignment, suggestions, chronicle entry | Standardizes output format |
 | **Dashboard as `dashboard.html`** | Single self-contained HTML file with all Mermaid visualizations | Makes the dashboard portable and easy to serve |
-| **Ongoing slash-command surface** | `/re-anchor`, `/amend`, `/chronicle`, `/dashboard`, `/status` | **Rejected after owner clarification.** It makes the Guardian human-operated instead of agent-side exclusive. |
+| **Slash commands beyond `/init`** | `/re-anchor`, `/amend`, `/chronicle`, `/dashboard`, `/status` | Expands the interaction surface for ongoing governance |
 | **Tool specifications table** | 18 tools across 6 categories with inputs/outputs/triggers | Provides implementation roadmap |
 | **"Knowledgeable colleague" framing** | The Guardian is a colleague with perfect memory, not a cheerleader or cop | Sets the behavioral tone |
-| **Anti-Patterns Registry** | Explicit examples of what drift looks like, stored in the Constitution | Makes drift detection concrete and project-specific |
+| **Anti-Patterns Registry** | Explicit examples of what drift looks like, stored in the North Star | Makes drift detection concrete and project-specific |
 
 ### Mechanical Questions Raised
 
@@ -121,7 +120,7 @@ Patrick asked how the Guardian would actually write to the orphan branch and dis
 
 Nothing was explicitly discarded. The conversation was additive throughout. One implicit non-goal:
 
-- **Blocking merges** — Patrick stated "no blocking authority" early on. Variance escalation may raise visibility in memory and future PR comments, but must not become a merge gate by default.
+- **Blocking merges** — Patrick stated "no blocking authority" early on. The Variance Protocol's escalation can eventually block, but this is a last resort for unresolved debt, not the default posture.
 
 ---
 
@@ -131,9 +130,9 @@ The Repository Guardian is an automated governance agent that runs on pull reque
 
 ---
 
-## 1. The Constitution
+## 1. The North Star
 
-The Guardian operates from a **Constitution**: a small, human-authored document that defines what the project *is*, what it *isn't*, and what patterns are sacred.
+The Guardian operates from a **North Star**: a small, human-authored document that defines what the project *is*, what it *isn't*, and what patterns are sacred.
 
 ### Structure
 
@@ -145,7 +144,7 @@ The Guardian operates from a **Constitution**: a small, human-authored document 
 - **Approved Architecture Map**: The canonical packages, patterns, and paradigms. *("We use Gin for HTTP, GORM for persistence, LangChain for orchestration.")*
 - **Anti-Patterns Registry**: Explicit examples of what drift looks like. *("A raw Python script that does CSV parsing without invoking the LLM layer is drift.")*
 
-The Constitution is authored once via a guided setup flow and amended deliberately — never silently overwritten.
+The North Star is authored once via a guided setup flow and amended deliberately — never silently overwritten.
 
 ---
 
@@ -156,9 +155,9 @@ Every pull request triggers an **interview**, not a review. The distinction:
 | Aspect | Traditional Code Review | Guardian Interview |
 |---|---|---|
 | **Focus** | "Is the code correct?" | "Does this code belong in *this* project?" |
-| **Scope** | Changed lines | Changed lines in context of the Constitution |
+| **Scope** | Changed lines | Changed lines in context of the North Star |
 | **Tone** | Approve / Request Changes | Matter-of-fact alignment check / Curious inquiry on drift |
-| **Authority** | Blocking | Advisory only; never a merge gate by default |
+| **Authority** | Blocking | Advisory by default, blocking only for declared drift |
 | **Output** | Line comments | A structured Interview Report |
 
 ### Interview Report Structure
@@ -230,7 +229,7 @@ The dashboard is a single self-contained `dashboard.html` on the orphan branch, 
 | **Saga Timeline** | Mermaid Gantt | Development arcs over time — when sagas started, which are active, where overlap exists |
 | **Branch Topology** | Mermaid GitGraph | Branching patterns, merge frequency, and where drift events occurred |
 | **Strategic Quadrant** | Mermaid Quadrant | PRs mapped on Strategic Value vs. Technical Debt axes |
-| **Principle Map** | Mermaid Mindmap | Code changes linked back to the constitutional principles they support or violate |
+| **Principle Map** | Mermaid Mindmap | Code changes linked back to the North Star principles they support or violate |
 
 ---
 
@@ -242,9 +241,9 @@ The Guardian supports intentional deviation. It is not a tyrant.
   `[VARIANCE: Principle 3 — hotfix for production outage, will revert within 7 days]`
 - **Debt Timers**: Every variance creates a timed obligation. The Guardian tracks these and escalates if unresolved.
 - **Escalation Levels**:
-   - Neutral reminder at 75% of timer
-   - Firm reminder at expiration
-   - Records unresolved debt prominently for future PR interviews that touch the same area
+  1. Neutral reminder at 75% of timer
+  2. Firm reminder at expiration
+  3. Blocks future PRs that touch the same area if still unresolved
 
 ---
 
@@ -255,13 +254,13 @@ All Guardian state lives on a git orphan branch (`guardian-memory`) that:
 - Shares **no file history** with `main`
 - Is **never merged** into `main`
 - Is **only written to** by the Guardian agent
-- Contains all state: constitution, journal, sagas, dashboard, drift ledger, debt timers
+- Contains all state: North Star, journal, sagas, dashboard, drift ledger, debt timers
 
 ### Branch Structure
 
 ```
 guardian-memory/
-├── constitution.md              # The project's identity and principles
+├── north-star.md              # The project's identity and principles
 ├── journal/
 │   ├── 2026-02-05-pr-42.md      # One entry per PR interview
 │   ├── 2026-02-06-pr-43.md
@@ -274,7 +273,7 @@ guardian-memory/
 ├── debt-timers.json             # Active and resolved variance debts
 ├── dashboard.html               # Self-contained Mermaid visualization
 └── meta/
-    ├── amendment-log.md          # History of constitutional changes
+    ├── amendment-log.md          # History of North Star changes
     └── guardian-config.json      # Agent configuration and thresholds
 ```
 
@@ -284,20 +283,20 @@ A `git log main` shows **zero** Guardian artifacts. They are permanently preserv
 
 ## 7. Tool Specifications
 
-### 7.1 Constitutional Tools
+### 7.1 North Star Tools
 
 | Tool | Purpose | Inputs | Outputs | Trigger |
 |---|---|---|---|---|
-| `read_constitution` | Retrieve current tenets and identity | — | Full constitution document | Every PR interview |
-| `amend_constitution` | Modify a principle or anti-pattern | Principle ID, new text, rationale | Updated constitution + amendment log entry | Rare agent-side North Star maintenance only |
-| `initialize_constitution` | Guided walkthrough for first-time setup | Interactive Q&A | Complete `constitution.md` | Initial local North Star interview |
+| `read_north_star` | Retrieve current tenets and identity | — | Full North Star document | Every PR interview |
+| `amend_north_star` | Modify a principle or anti-pattern | Principle ID, new text, rationale | Updated North Star + amendment log entry | `/amend` command only |
+| `initialize_north_star` | Guided walkthrough for first-time setup | Interactive Q&A | Complete `north-star.md` | `/init-guardian` command |
 
 ### 7.2 Analysis Tools
 
 | Tool | Purpose | Inputs | Outputs | Trigger |
 |---|---|---|---|---|
 | `analyze_diff` | Parse PR diff for structural information | PR diff content | Files changed, packages imported, patterns used, functions added/removed | Every PR interview |
-| `evaluate_alignment` | Compare diff against each principle | Diff analysis + Constitution | Per-principle verdict with reasoning (relevant principles only) | Every PR interview |
+| `evaluate_alignment` | Compare diff against each principle | Diff analysis + North Star | Per-principle verdict with reasoning (relevant principles only) | Every PR interview |
 | `detect_anti_patterns` | Check for declared anti-pattern matches | Diff analysis + Anti-patterns list | Matches with locations and explanations | Every PR interview |
 | `assess_intent` | Infer developer's goal from PR metadata | PR title, description, commit messages | Intent summary paragraph | Every PR interview |
 
@@ -308,7 +307,7 @@ A `git log main` shows **zero** Guardian artifacts. They are permanently preserv
 | `write_journal_entry` | Compose and append a narrative entry | Interview report, saga context | Timestamped entry in `journal/` | After every interview |
 | `assign_saga` | Determine which saga a PR belongs to (or create one) | PR intent summary, existing sagas | Saga assignment | Every PR interview |
 | `update_saga` | Add PR to saga history, update status | Saga ID, PR reference, status | Updated saga file | After assignment |
-| `read_chronicle` | Retrieve filtered project history | Optional: date range, saga, drift-only | Journal entries, saga summaries | Internal dashboard/status generation |
+| `read_chronicle` | Retrieve filtered project history | Optional: date range, saga, drift-only | Journal entries, saga summaries | `/chronicle` command |
 
 ### 7.4 Visualization Tools
 
@@ -318,7 +317,7 @@ A `git log main` shows **zero** Guardian artifacts. They are permanently preserv
 | `generate_gantt` | Saga timelines and active development periods | Saga registry with dates | Mermaid Gantt code | Dashboard render |
 | `generate_gitgraph` | Branching patterns and drift event markers | Git history + drift ledger | Mermaid GitGraph code | Dashboard render |
 | `generate_quadrant` | Strategic Value vs. Technical Debt mapping | Interview reports with scores | Mermaid Quadrant code | Dashboard render |
-| `generate_mindmap` | Link changes to constitutional principles | Interview reports + Constitution | Mermaid Mindmap code | Dashboard render |
+| `generate_mindmap` | Link changes to North Star principles | Interview reports + North Star | Mermaid Mindmap code | Dashboard render |
 
 ### 7.5 Governance Tools
 
@@ -362,28 +361,28 @@ Different outputs need different access patterns:
 | **Interview Report** | PR comment | Posted by Guardian after each interview. GitHub renders Mermaid natively in comments. |
 | **Dashboard** | GitHub Pages | Point Pages at `guardian-memory` branch. Dashboard lives at `https://org.github.io/repo/dashboard.html`. |
 | **Journal / Sagas** | GitHub file browser | Switch to `guardian-memory` branch in UI. GitHub renders Markdown natively. |
-| **Constitution** | GitHub file browser | Same — browse to `guardian-memory/constitution.md`. |
-| **Ongoing command surface** | None | No slash commands, issue commands, or human-operated command menu. The Guardian remains autonomous after setup. |
+| **North Star** | GitHub file browser | Same — browse to `guardian-memory/north-star.md`. |
+| **On-demand via slash command** | PR comment or issue | `/dashboard` or `/chronicle` triggers Guardian to post content into the current context. |
 
 ### Workflow Sequence
 
 ```
 1. PR opened/updated
-   ↓
+   â†“
 2. GitHub Actions triggers Guardian workflow
-   ↓
+   â†“
 3. Guardian checks out `guardian-memory` via worktree
-   ↓
-4. Guardian reads constitution and state from worktree
-   ↓
+   â†“
+4. Guardian reads North Star and state from worktree
+   â†“
 5. Guardian analyzes PR diff, runs interview
-   ↓
+   â†“
 6. Guardian posts Interview Report as PR comment
-   ↓
+   â†“
 7. Guardian writes journal entry, updates sagas, regenerates dashboard
-   ↓
+   â†“
 8. Guardian commits and pushes to `guardian-memory` only
-   ↓
+   â†“
 9. GitHub Pages auto-deploys updated dashboard
 ```
 
@@ -397,25 +396,16 @@ Different outputs need different access patterns:
 
 ---
 
-## 9. Interface Boundaries
+## 9. Slash Commands
 
-The Guardian is autonomous after setup. It does **not** expose slash commands, issue-comment commands, or a standing human control panel.
-
-Allowed surfaces:
-
-| Surface | Purpose | Boundary |
+| Command | Purpose | Flow |
 |---|---|---|
-| Initial North Star interview | Establish the Constitution once | Deliberate setup flow, run locally or by an agent with owner participation |
-| PR comments | Deliver the advisory Interview Report | Triggered only by pull request events |
-| `guardian-memory` branch | Persist constitution, journal, sagas, drift ledger, debt timers, dashboard | Written only by the Guardian agent |
-| Optional GitHub Pages dashboard | Passive visualization | Updated by the agent; not a command surface |
-
-Disallowed surfaces:
-
-- No `/init-guardian`, `/re-anchor`, `/amend`, `/chronicle`, `/dashboard`, or `/status` comments.
-- No `issue_comment` workflow trigger for operating the Guardian.
-- No scheduled creation of tracking issues just to report Guardian state.
-- No merge blocking unless a repository owner explicitly opts into a stricter policy outside the default North Star.
+| `/init-guardian` | First-time setup | Guided interview: project identity → principles → approved architecture → anti-patterns → generates `north-star.md` |
+| `/re-anchor` | Refresh or refocus tenets | Same flow as init, shows current values, asks what changed |
+| `/amend [principle]` | Modify a specific tenet | Shows current text, accepts replacement + rationale, logs amendment |
+| `/chronicle` | View project history | Options: full / by-saga / by-date-range / drift-only |
+| `/dashboard` | Regenerate visualization dashboard | Triggers full render |
+| `/status` | Quick health check | Active sagas, open debt timers, last interview, drift trend |
 
 ---
 
@@ -440,9 +430,9 @@ The main cycle, triggered by each pull request:
 flowchart TD
     A([PR opened or updated]) --> B[Guardian workflow triggered]
     B --> C[Check out guardian-memory branch]
-    C --> D[Read Constitution and prior state]
+    C --> D[Read North Star and prior state]
     D --> E[Analyze diff and assess intent]
-    E --> F{Evaluate against Constitution}
+    E --> F{Evaluate against North Star}
     F -->|Aligned| G[Confirm briefly and suggest improvements]
     F -->|Ambiguous| H[Surface ambiguity and ask which intent applies]
     F -->|Drift| I[Ask whether the drift was intentional]

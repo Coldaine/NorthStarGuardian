@@ -1,6 +1,6 @@
-"""Constitutional tools for NorthStarGuardian.
+"""North Star tools for NorthStarGuardian.
 
-Provides read/write/amend operations for the project Constitution stored on
+Provides read/write/amend operations for the project North Star stored on
 the ``guardian-memory`` orphan branch, plus the amendment log.
 """
 
@@ -12,11 +12,13 @@ import textwrap
 from datetime import UTC, datetime
 from typing import Any
 
+from jinja2 import Environment, PackageLoader
+
 from guardian.memory import MemoryStore
-from guardian.models import Amendment, AntiPattern, Constitution, Principle
+from guardian.models import Amendment, AntiPattern, NorthStar, Principle
 
 # Paths on the guardian-memory branch.
-_CONSTITUTION_PATH = "constitution.md"
+_NORTH_STAR_PATH = "north-star.md"
 _AMENDMENT_LOG_PATH = "meta/amendment-log.md"
 
 
@@ -27,11 +29,11 @@ _AMENDMENT_LOG_PATH = "meta/amendment-log.md"
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 
 
-def parse_constitution_markdown(text: str) -> Constitution:
-    """Parse a Constitution from its Markdown+YAML-frontmatter representation."""
+def parse_north_star_markdown(text: str) -> NorthStar:
+    """Parse a North Star from its Markdown+YAML-frontmatter representation."""
     m = _FRONTMATTER_RE.match(text)
     if not m:
-        raise ValueError("constitution.md is missing YAML frontmatter")
+        raise ValueError("north-star.md is missing YAML frontmatter")
 
     raw: dict[str, Any] = json.loads(m.group(1)) or {}
 
@@ -66,7 +68,7 @@ def parse_constitution_markdown(text: str) -> Constitution:
     if isinstance(amended_at, str):
         amended_at = datetime.fromisoformat(amended_at)
 
-    return Constitution(
+    return NorthStar(
         version=raw.get("version", 1),
         project_name=raw.get("project_name", ""),
         identity_statement=raw.get("identity_statement", ""),
@@ -78,10 +80,10 @@ def parse_constitution_markdown(text: str) -> Constitution:
     )
 
 
-def render_constitution_markdown(c: Constitution) -> str:
-    """Render a Constitution to the canonical Markdown+YAML-frontmatter format.
+def render_north_star_markdown(c: NorthStar) -> str:
+    """Render a North Star to the canonical Markdown+YAML-frontmatter format.
 
-    The output is fully round-trippable via :func:`parse_constitution_markdown`.
+    The output is fully round-trippable via :func:`parse_north_star_markdown`.
     """
     frontmatter: dict[str, Any] = {
         "version": c.version,
@@ -116,7 +118,7 @@ def render_constitution_markdown(c: Constitution) -> str:
 
     # Build the human-readable body after the frontmatter.
     body_lines = [
-        f"# {c.project_name} — Constitution\n",
+        f"# {c.project_name} — North Star\n",
         "## Identity\n",
         c.identity_statement,
         "\n## Principles\n",
@@ -147,41 +149,41 @@ def render_constitution_markdown(c: Constitution) -> str:
 # Core I/O
 # ---------------------------------------------------------------------------
 
-def read_constitution(store: MemoryStore) -> Constitution:
-    """Read and parse the Constitution from the memory branch."""
-    text = store.read(_CONSTITUTION_PATH)
-    return parse_constitution_markdown(text)
+def read_north_star(store: MemoryStore) -> NorthStar:
+    """Read and parse the North Star from the memory branch."""
+    text = store.read(_NORTH_STAR_PATH)
+    return parse_north_star_markdown(text)
 
 
-def write_constitution(
+def write_north_star(
     store: MemoryStore,
-    c: Constitution,
+    c: NorthStar,
     rationale: str = "initial",
 ) -> None:
     """Serialise and write *c* to the memory branch (stages; does not commit)."""
-    store.write(_CONSTITUTION_PATH, render_constitution_markdown(c), message=rationale)
+    store.write(_NORTH_STAR_PATH, render_north_star_markdown(c), message=rationale)
 
 
 # ---------------------------------------------------------------------------
 # Amendment
 # ---------------------------------------------------------------------------
 
-def amend_constitution(
+def amend_north_star(
     store: MemoryStore,
     target: str,
     target_id: str | None,
     after: str,
     rationale: str,
     actor: str,
-) -> Constitution:
-    """Apply an amendment to the Constitution and record it in the log.
+) -> NorthStar:
+    """Apply an amendment to the North Star and record it in the log.
 
     *target* must be one of ``"identity"``, ``"principle"``,
     ``"anti_pattern"``, or ``"architecture"``.
 
-    Returns the updated Constitution (staged but not committed).
+    Returns the updated North Star (staged but not committed).
     """
-    c = read_constitution(store)
+    c = read_north_star(store)
     now = datetime.now(tz=UTC)
     before: str | None = None
 
@@ -203,7 +205,7 @@ def amend_constitution(
                 principles[i] = p.model_copy(update={"text": after})
                 break
         else:
-            raise ValueError(f"Principle '{target_id}' not found in Constitution")
+            raise ValueError(f"Principle '{target_id}' not found in North Star")
         c = c.model_copy(update={"principles": principles, "amended_at": now})
 
     elif target == "anti_pattern":
@@ -216,7 +218,7 @@ def amend_constitution(
                 patterns[i] = a.model_copy(update={"description": after})
                 break
         else:
-            raise ValueError(f"Anti-pattern '{target_id}' not found in Constitution")
+            raise ValueError(f"Anti-pattern '{target_id}' not found in North Star")
         c = c.model_copy(update={"anti_patterns": patterns, "amended_at": now})
 
     else:
@@ -236,7 +238,7 @@ def amend_constitution(
         rationale=rationale,
     )
 
-    write_constitution(store, c, rationale=rationale)
+    write_north_star(store, c, rationale=rationale)
     append_amendment(store, amendment)
     return c
 
@@ -264,7 +266,7 @@ def append_amendment(store: MemoryStore, amendment: Amendment) -> None:
     """)
 
     if not existing:
-        header = "# Amendment Log\n\nAll constitutional changes, in chronological order.\n\n"
+        header = "# Amendment Log\n\nAll North Star changes, in chronological order.\n\n"
         content = header + entry
     else:
         content = existing + "\n" + entry
@@ -276,8 +278,8 @@ def append_amendment(store: MemoryStore, amendment: Amendment) -> None:
 # Initialize
 # ---------------------------------------------------------------------------
 
-def initialize_constitution(answers: dict[str, Any], actor: str) -> Constitution:
-    """Turn a dict of setup-flow answers into a Constitution.
+def initialize_north_star(answers: dict[str, Any], actor: str) -> NorthStar:
+    """Turn a dict of setup-flow answers into a North Star.
 
     The interactive prompts live in ``cli.py``; this function is pure
     data transformation.  Expected *answers* keys:
@@ -289,7 +291,7 @@ def initialize_constitution(answers: dict[str, Any], actor: str) -> Constitution
     - ``anti_patterns`` (list of dict with ``description`` and optional
       ``example``, ``detect`` keys; or list of str for simple descriptions)
 
-    Returns an un-persisted Constitution; call :func:`write_constitution`
+    Returns an un-persisted NorthStar object; call :func:`write_north_star`
     to save it.
     """
     now = datetime.now(tz=UTC)
@@ -325,7 +327,7 @@ def initialize_constitution(answers: dict[str, Any], actor: str) -> Constitution
                 )
             )
 
-    return Constitution(
+    return NorthStar(
         version=1,
         project_name=answers["project_name"],
         identity_statement=answers["identity_statement"],
@@ -336,3 +338,17 @@ def initialize_constitution(answers: dict[str, Any], actor: str) -> Constitution
     )
 
 
+# ---------------------------------------------------------------------------
+# Jinja2 template rendering (used by CLI)
+# ---------------------------------------------------------------------------
+
+def render_north_star_template(answers: dict[str, Any]) -> str:
+    """Render the Jinja2 skeleton template with *answers* for preview/editing."""
+    env = Environment(
+        loader=PackageLoader("guardian", "templates"),
+        autoescape=False,
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+    template = env.get_template("north-star.md.j2")
+    return template.render(**answers)

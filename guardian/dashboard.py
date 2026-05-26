@@ -5,7 +5,7 @@ Implements the five Visualization Tools from spec §7.4:
   - generate_gantt     — Mermaid Gantt (saga timelines)
   - generate_gitgraph  — Mermaid GitGraph (branching + drift markers)
   - generate_quadrant  — Mermaid QuadrantChart (strategic value vs tech debt)
-  - generate_mindmap   — Mermaid Mindmap (changes → constitutional principles)
+  - generate_mindmap   — Mermaid Mindmap (changes → North Star principles)
 
 All generate_* functions return raw Mermaid source strings with no HTML
 wrapping. render_dashboard embeds them into dashboard.html.j2 and writes the
@@ -24,10 +24,10 @@ from jinja2 import Environment, FileSystemLoader
 from guardian.chronicle import read_chronicle
 from guardian.memory import MemoryStore
 from guardian.models import (
-    Constitution,
     DriftEvent,
     InterviewReport,
     JournalEntry,
+    NorthStar,
     Saga,
     SagaStatus,
     Verdict,
@@ -230,13 +230,13 @@ def generate_quadrant(
 # ---------------------------------------------------------------------------
 
 def generate_mindmap(
-    constitution: Constitution,
+    north_star: NorthStar,
     recent_journal: list[JournalEntry],
 ) -> str:
     """Return a Mermaid Mindmap source string.
 
     Root: project name.
-    Level 1 branches: each constitutional principle.
+    Level 1 branches: each North Star principle.
     Level 2 leaves: recent PRs attached to the principle they most touched.
 
     PRs are attached to a principle when a PrincipleEvaluation with
@@ -244,21 +244,21 @@ def generate_mindmap(
     best-effort parse of the stored body_markdown table rows).
     Unattached PRs go to an "Unassigned" branch.
     """
-    root = _mermaid_safe(constitution.project_name)
+    root = _mermaid_safe(north_star.project_name)
     lines: list[str] = [
         "mindmap",
         f"  root(({root}))",
     ]
 
     # Map principle_id → list of PR labels
-    principle_prs: dict[str, list[str]] = {p.id: [] for p in constitution.principles}
+    principle_prs: dict[str, list[str]] = {p.id: [] for p in north_star.principles}
     unassigned: list[str] = []
 
     for entry in recent_journal:
         pr_label = f"PR #{entry.pr_number}"
         # Try to extract a principle_id from the markdown table stored in body
         assigned = False
-        for principle in constitution.principles:
+        for principle in north_star.principles:
             pattern = re.compile(
                 r"\|\s*`?" + re.escape(principle.id) + r"`?\s*\|",
                 re.IGNORECASE,
@@ -271,7 +271,7 @@ def generate_mindmap(
             unassigned.append(pr_label)
 
     # Emit principle branches
-    for principle in sorted(constitution.principles, key=lambda p: p.rank):
+    for principle in sorted(north_star.principles, key=lambda p: p.rank):
         p_label = _mermaid_safe(principle.text[:50])  # truncate long principle text
         lines.append(f"    {p_label}")
         for pr_label in principle_prs[principle.id]:
@@ -289,7 +289,7 @@ def generate_mindmap(
 # render_dashboard
 # ---------------------------------------------------------------------------
 
-def render_dashboard(store: MemoryStore, constitution: Constitution) -> str:
+def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
     """Orchestrate all chart generators and render the dashboard HTML.
 
     Reads all chronicle data from *store*, generates each Mermaid chart,
@@ -303,16 +303,16 @@ def render_dashboard(store: MemoryStore, constitution: Constitution) -> str:
     gantt_src = generate_gantt(sagas)
     gitgraph_src = generate_gitgraph(drift_events, journal)
     quadrant_src = generate_quadrant(journal)
-    mindmap_src = generate_mindmap(constitution, journal)
+    mindmap_src = generate_mindmap(north_star, journal)
 
     generated_at = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
 
     env = _jinja_env()
     template = env.get_template("dashboard.html.j2")
     html = template.render(
-        project_name=constitution.project_name,
-        identity_statement=constitution.identity_statement,
-        principles=constitution.principles,
+        project_name=north_star.project_name,
+        identity_statement=north_star.identity_statement,
+        principles=north_star.principles,
         gantt_src=gantt_src,
         gitgraph_src=gitgraph_src,
         quadrant_src=quadrant_src,

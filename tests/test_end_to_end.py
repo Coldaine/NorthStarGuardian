@@ -9,15 +9,15 @@ import json
 import subprocess
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from guardian.analyze import analyze_diff, run_interview
 from guardian.chronicle import assign_saga, update_saga, write_journal_entry
-from guardian.constitution import initialize_constitution, write_constitution
 from guardian.dashboard import render_dashboard
 from guardian.memory import MemoryStore
-from tests.conftest import FakeLLMClient
+from guardian.north_star import initialize_north_star, write_north_star
 
 
 def _git(args: list[str], cwd: Path) -> str:
@@ -70,10 +70,17 @@ PR_META: dict[str, Any] = {
 }
 
 
+def _llm_response(text: str) -> MagicMock:
+    """Mock anthropic response whose .content[0].text == text."""
+    block = MagicMock()
+    block.text = text
+    resp = MagicMock()
+    resp.content = [block]
+    return resp
 
 
-def _build_fake_client(principle_ids: list[str], verdict: str = "aligned") -> FakeLLMClient:
-    """Fake LLM client driving the 5 LLM calls of run_interview + assign_saga.
+def _build_mock_client(principle_ids: list[str], verdict: str = "aligned") -> MagicMock:
+    """Mock anthropic client driving the 5 LLM calls of run_interview + assign_saga.
 
     `verdict` controls what evaluate_alignment returns for the (one) relevant
     principle: "aligned", "drift", or "ambiguous".
@@ -94,13 +101,15 @@ def _build_fake_client(principle_ids: list[str], verdict: str = "aligned") -> Fa
     ])
     chronicle_prose = f"PR #42 was assessed as {verdict}."
 
-    return FakeLLMClient(
-        intent_json,
-        alignment_json,
-        "[]",
-        chronicle_prose,
-        "CREATE: New Saga",
-    )
+    client = MagicMock()
+    client.messages.create.side_effect = [
+        _llm_response(intent_json),
+        _llm_response(alignment_json),
+        _llm_response("[]"),
+        _llm_response(chronicle_prose),
+        _llm_response("CREATE: New Saga"),
+    ]
+    return client
 
 
 @pytest.fixture()
@@ -110,7 +119,7 @@ def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
     store = MemoryStore(repo)
     store.ensure_initialized()
 
-    constitution = initialize_constitution(
+    north_star = initialize_north_star(
         {
             "project_name": "TestProject",
             "identity_statement": (
@@ -125,7 +134,7 @@ def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
                 "Tests mock LLM calls; no real network access in CI.",
             ],
             "approved_architecture": (
-                "Python 3.11+, Pydantic v2 models, a Guardian LLMClient adapter, "
+                "Python 3.11+, Pydantic v2 models, Anthropic SDK for LLM calls, "
                 "Jinja2 for templating, unidiff for diff parsing."
             ),
             "anti_patterns": [
@@ -138,8 +147,8 @@ def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
         },
         actor="test-setup",
     )
-    write_constitution(store, constitution, rationale="Initial constitution for E2E test")
-    store.commit_and_push("chore: seed constitution for E2E test", push=True)
+    write_north_star(store, north_star, rationale="Initial North Star for E2E test")
+    store.commit_and_push("chore: seed North Star for E2E test", push=True)
 
     return repo, store
 
@@ -148,32 +157,32 @@ def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
 def test_full_pr_interview_cycle(
     repo_and_store: tuple[Path, MemoryStore], verdict: str,
 ) -> None:
-    from guardian.constitution import read_constitution
+    from guardian.north_star import read_north_star
 
     _repo, store = repo_and_store
     diff_analysis = analyze_diff(SAMPLE_DIFF, PR_META)
     assert diff_analysis.pr_number == 42
     assert len(diff_analysis.files) == 1
 
-    constitution = read_constitution(store)
-    principle_ids = [p.id for p in constitution.principles]
+    north_star = read_north_star(store)
+    principle_ids = [p.id for p in north_star.principles]
     assert len(principle_ids) == 5
 
-    client = _build_fake_client(principle_ids, verdict=verdict)
+    client = _build_mock_client(principle_ids, verdict=verdict)
 
     report = run_interview(
-        diff_analysis, constitution, client=client, model="claude-test-mock", pr_meta=PR_META,
+        diff_analysis, north_star, client=client, model="claude-test-mock", pr_meta=PR_META,
     )
     assert report.pr_number == 42
     assert report.overall_verdict.value == verdict
     assert report.chronicle_paragraph
     assert report.intent.one_line
-    assert client.call_count == 4
+    assert client.messages.create.call_count == 4
 
     saga = assign_saga(
         store, report.intent, existing_sagas=[], client=client, model="claude-test-mock",
     )
-    assert client.call_count == 5
+    assert client.messages.create.call_count == 5
     assert saga.id
     assert saga.name == "New Saga"
 
@@ -185,7 +194,7 @@ def test_full_pr_interview_cycle(
     assert entry.pr_number == 42
     assert entry.saga_id == saga.id
 
-    html = render_dashboard(store, constitution)
+    html = render_dashboard(store, north_star)
     assert html
 
     journal_files = store.list("journal/")

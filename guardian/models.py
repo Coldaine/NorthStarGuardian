@@ -25,12 +25,12 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
-# Constitution
+# North Star
 # ---------------------------------------------------------------------------
 
 
 class Principle(BaseModel):
-    """A single ranked tenet in the Constitution."""
+    """A single ranked tenet in the North Star."""
 
     id: str
     rank: int
@@ -48,7 +48,7 @@ class AntiPattern(BaseModel):
     detect: str | None = None  # optional grep/AST hint
 
 
-class Constitution(BaseModel):
+class NorthStar(BaseModel):
     """The project's identity document, version-pinned for amendment tracking."""
 
     version: int = 1
@@ -62,7 +62,7 @@ class Constitution(BaseModel):
 
 
 class Amendment(BaseModel):
-    """Append-only record of constitutional changes."""
+    """Append-only record of North Star changes."""
 
     timestamp: datetime
     actor: str

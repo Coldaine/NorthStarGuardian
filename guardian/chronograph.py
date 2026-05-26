@@ -85,6 +85,7 @@ class ApplyPlanItem(BaseModel):
     auto_apply: bool
     backup_path: str
     rollback_command: str
+    target_existed: bool
     reason: str
     confidence: float
     old_hash: str
@@ -227,6 +228,7 @@ def build_apply_plan(
 
     for action in actions:
         target = policy.validate_target(action.target_path)
+        target_existed = target.exists()
         backup_path = _backup_path(policy, target, action.id, timestamp)
         item = ApplyPlanItem(
             action_id=action.id,
@@ -238,7 +240,8 @@ def build_apply_plan(
             risk_level=_risk_for(action),
             auto_apply=_can_auto_apply(action, policy),
             backup_path=str(backup_path),
-            rollback_command=_rollback_command(backup_path, target),
+            rollback_command=_rollback_command(backup_path, target, target_existed),
+            target_existed=target_existed,
             reason=action.reason,
             confidence=action.confidence,
             old_hash=_sha256(action.before),
@@ -256,27 +259,72 @@ def apply_plan(
     plan: list[ApplyPlanItem],
     *,
     policy: ChronographSafetyPolicy,
-    actions: list[StewardshipAction] | None = None,
+    actions: list[StewardshipAction],
     now: datetime | None = None,
 ) -> list[ApplyResult]:
     """Apply approved or auto-apply plan items and append audit entries."""
-    _ = actions
+    action_by_id = {action.id: action for action in actions}
     results: list[ApplyResult] = []
 
     for item in plan:
         target = policy.validate_target(item.target_path)
-        if not item.auto_apply and not item.approved:
-            results.append(
-                ApplyResult(
-                    action_id=item.action_id,
-                    target_path=str(target),
-                    applied=False,
-                    skipped_reason="action requires explicit approval",
-                    old_hash=item.old_hash,
-                    new_hash=item.new_hash,
-                    rollback_command=item.rollback_command,
-                )
+        action = action_by_id.get(item.action_id)
+        if action is None:
+            result = ApplyResult(
+                action_id=item.action_id,
+                target_path=str(target),
+                applied=False,
+                skipped_reason="source action missing",
+                old_hash=item.old_hash,
+                new_hash=item.new_hash,
+                rollback_command=item.rollback_command,
             )
+            _append_audit(policy, item, result, now=now)
+            results.append(result)
+            continue
+
+        mismatch = _plan_action_mismatch(item, action, policy)
+        if mismatch:
+            result = ApplyResult(
+                action_id=item.action_id,
+                target_path=str(target),
+                applied=False,
+                skipped_reason=mismatch,
+                old_hash=item.old_hash,
+                new_hash=item.new_hash,
+                rollback_command=item.rollback_command,
+            )
+            _append_audit(policy, item, result, now=now)
+            results.append(result)
+            continue
+
+        if not (_can_auto_apply(action, policy) or action.approved):
+            result = ApplyResult(
+                action_id=item.action_id,
+                target_path=str(target),
+                applied=False,
+                skipped_reason="action requires explicit approval",
+                old_hash=item.old_hash,
+                new_hash=item.new_hash,
+                rollback_command=item.rollback_command,
+            )
+            _append_audit(policy, item, result, now=now)
+            results.append(result)
+            continue
+
+        current = target.read_text(encoding="utf-8") if target.exists() else ""
+        if _sha256(current) != item.old_hash:
+            result = ApplyResult(
+                action_id=item.action_id,
+                target_path=str(target),
+                applied=False,
+                skipped_reason="target changed since plan",
+                old_hash=item.old_hash,
+                new_hash=item.new_hash,
+                rollback_command=item.rollback_command,
+            )
+            _append_audit(policy, item, result, now=now)
+            results.append(result)
             continue
 
         backup = Path(item.backup_path)
@@ -289,7 +337,7 @@ def apply_plan(
                 backup.write_text("", encoding="utf-8")
 
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(item.after, encoding="utf-8")
+            target.write_text(action.after, encoding="utf-8")
             result = ApplyResult(
                 action_id=item.action_id,
                 target_path=str(target),
@@ -399,8 +447,6 @@ def _risk_for(action: StewardshipAction) -> RiskLevel:
 
 
 def _can_auto_apply(action: StewardshipAction, policy: ChronographSafetyPolicy) -> bool:
-    if action.approved:
-        return True
     if action.destructive or action.action_class == ActionClass.RETIRE:
         return False
 
@@ -414,6 +460,13 @@ def _can_auto_apply(action: StewardshipAction, policy: ChronographSafetyPolicy) 
         "add_chronograph_marker",
         "promote_stable_memory",
     }
+    if action.metadata.get("operation") == "add_missing_include":
+        include = str(action.metadata.get("include") or _detect_missing_include(action.before, action.after, ""))
+        if not _is_known_safe_include(include):
+            return False
+        if not _is_pure_additive_change(action.before, action.after):
+            return False
+
     return action.confidence >= 0.9 and action.metadata.get("operation") in high_confidence_operations
 
 
@@ -428,6 +481,39 @@ def _unified_diff(before: str, after: str, target_path: str) -> str:
             tofile=f"{target_path} (after)",
         )
     )
+
+
+def _plan_action_mismatch(
+    item: ApplyPlanItem,
+    action: StewardshipAction,
+    policy: ChronographSafetyPolicy,
+) -> str | None:
+    if policy.resolve_target(action.target_path) != policy.resolve_target(item.target_path):
+        return "plan does not match source action"
+    if item.action_class != action.action_class:
+        return "plan does not match source action"
+    if item.old_hash != _sha256(action.before) or item.new_hash != _sha256(action.after):
+        return "plan does not match source action"
+    if item.destructive != action.destructive or item.approved != action.approved:
+        return "plan does not match source action"
+    return None
+
+
+def _is_known_safe_include(include: str) -> bool:
+    normalized = include.strip().lstrip("@").replace("\\", "/").lower()
+    return normalized.endswith("/rtk.md") or normalized == "rtk.md"
+
+
+def _is_pure_additive_change(before: str, after: str) -> bool:
+    before_lines = before.splitlines()
+    after_lines = after.splitlines()
+    cursor = 0
+    for line in before_lines:
+        try:
+            cursor = after_lines.index(line, cursor) + 1
+        except ValueError:
+            return False
+    return len(after_lines) > len(before_lines)
 
 
 def _timestamp(now: datetime | None) -> str:
@@ -453,7 +539,9 @@ def _safe_path_part(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._@-]+", "_", value) or "_"
 
 
-def _rollback_command(backup_path: Path, target: Path) -> str:
+def _rollback_command(backup_path: Path, target: Path, target_existed: bool) -> str:
+    if not target_existed:
+        return f"Remove-Item -LiteralPath '{_ps_escape(target)}' -Force"
     return f"Copy-Item -LiteralPath '{_ps_escape(backup_path)}' -Destination '{_ps_escape(target)}' -Force"
 
 
@@ -483,6 +571,7 @@ def _append_audit(
         "risk_level": item.risk_level.value,
         "backup_path": result.backup_path,
         "rollback_command": item.rollback_command,
+        "target_existed": item.target_existed,
         "reason": item.reason,
         "narrative_ref": item.narrative_ref,
         "applied": result.applied,
@@ -525,10 +614,13 @@ def _is_forbidden_path(lowered_parts: list[str], lowered_name: str) -> bool:
         "state.db",
     }
     forbidden_fragments = ("credential", "secret", "token", "auth")
+    forbidden_suffixes = (".db", ".sqlite", ".sqlite3", ".duckdb")
 
     if any(part in forbidden_parts for part in lowered_parts):
         return True
     if lowered_name in forbidden_names:
+        return True
+    if any(lowered_name.endswith(suffix) for suffix in forbidden_suffixes):
         return True
     return any(fragment in lowered_name for fragment in forbidden_fragments)
 

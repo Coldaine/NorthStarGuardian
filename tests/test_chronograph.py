@@ -72,6 +72,149 @@ def test_build_apply_plan_marks_high_confidence_additive_repair_auto_apply(tmp_p
     assert "Copy-Item" in item.rollback_command
 
 
+def test_apply_plan_recomputes_auto_apply_from_source_action(tmp_path: Path) -> None:
+    target = tmp_path / ".claude" / "agents" / "old.md"
+    target.parent.mkdir(parents=True)
+    before = "stale agent\n"
+    target.write_text(before, encoding="utf-8")
+    action = StewardshipAction(
+        id="retire-old-agent",
+        action_class=ActionClass.RETIRE,
+        target_path=str(target),
+        before=before,
+        after="",
+        reason="Timeline shows this agent is no longer referenced.",
+        confidence=0.99,
+        destructive=True,
+        approved=False,
+    )
+    policy = ChronographSafetyPolicy.for_repo(tmp_path)
+    plan = build_apply_plan([action], policy=policy, now=NOW)
+    tampered = plan[0].model_copy(update={"auto_apply": True})
+
+    results = apply_plan([tampered], policy=policy, actions=[action], now=NOW)
+
+    assert not results[0].applied
+    assert results[0].skipped_reason == "action requires explicit approval"
+    assert target.read_text(encoding="utf-8") == before
+
+
+def test_apply_plan_skips_when_live_target_changed_since_planning(tmp_path: Path) -> None:
+    target = tmp_path / ".codex" / "AGENTS.md"
+    target.parent.mkdir()
+    before = "Always commit when feasible.\n"
+    target.write_text(before, encoding="utf-8")
+    action = StewardshipAction(
+        id="repair-missing-rtk",
+        action_class=ActionClass.REPAIR,
+        target_path=str(target),
+        before=before,
+        after=before + "@C:\\Users\\pmacl\\.codex\\RTK.md\n",
+        reason="The diff showed AGENTS.md missing the durable RTK include.",
+        confidence=0.96,
+        metadata={"operation": "add_missing_include", "include": "@C:\\Users\\pmacl\\.codex\\RTK.md"},
+    )
+    policy = ChronographSafetyPolicy.for_repo(tmp_path)
+    plan = build_apply_plan([action], policy=policy, now=NOW)
+    target.write_text("User changed this file after the plan.\n", encoding="utf-8")
+
+    results = apply_plan(plan, policy=policy, actions=[action], now=NOW)
+
+    assert not results[0].applied
+    assert results[0].skipped_reason == "target changed since plan"
+    assert target.read_text(encoding="utf-8") == "User changed this file after the plan.\n"
+
+
+def test_approved_destructive_action_is_not_marked_auto_apply(tmp_path: Path) -> None:
+    target = tmp_path / ".claude" / "agents" / "old.md"
+    target.parent.mkdir(parents=True)
+    target.write_text("stale agent\n", encoding="utf-8")
+    action = StewardshipAction(
+        id="retire-old-agent",
+        action_class=ActionClass.RETIRE,
+        target_path=str(target),
+        before="stale agent\n",
+        after="",
+        reason="Timeline shows this agent is no longer referenced.",
+        confidence=0.99,
+        destructive=True,
+        approved=True,
+    )
+
+    plan = build_apply_plan(
+        [action],
+        policy=ChronographSafetyPolicy.for_repo(tmp_path),
+        now=NOW,
+    )
+
+    assert plan[0].approved
+    assert not plan[0].auto_apply
+
+
+def test_arbitrary_missing_include_is_not_auto_applied(tmp_path: Path) -> None:
+    target = tmp_path / ".codex" / "AGENTS.md"
+    target.parent.mkdir()
+    before = "Always commit when feasible.\n"
+    target.write_text(before, encoding="utf-8")
+    diff = ConfigDiff(
+        target_path=str(target),
+        before=before,
+        after=before + "@C:\\Users\\pmacl\\.codex\\UNREVIEWED.md\n",
+        summary="missing include @C:\\Users\\pmacl\\.codex\\UNREVIEWED.md",
+        source="memory-curation",
+        confidence=0.96,
+    )
+    action = recommend_actions([diff])[0]
+
+    plan = build_apply_plan(
+        [action],
+        policy=ChronographSafetyPolicy.for_repo(tmp_path),
+        now=NOW,
+    )
+
+    assert action.action_class == ActionClass.REPAIR
+    assert not plan[0].auto_apply
+
+
+def test_new_file_apply_plan_uses_remove_item_rollback(tmp_path: Path) -> None:
+    target = tmp_path / ".codex" / "AGENTS.md"
+    action = StewardshipAction(
+        id="create-agents",
+        action_class=ActionClass.REPAIR,
+        target_path=str(target),
+        before="",
+        after="@C:\\Users\\pmacl\\.codex\\RTK.md\n",
+        reason="The diff showed AGENTS.md missing the durable RTK include.",
+        confidence=0.96,
+        metadata={"operation": "add_missing_include", "include": "@C:\\Users\\pmacl\\.codex\\RTK.md"},
+    )
+
+    plan = build_apply_plan(
+        [action],
+        policy=ChronographSafetyPolicy.for_repo(tmp_path),
+        now=NOW,
+    )
+
+    assert plan[0].target_existed is False
+    assert "Remove-Item" in plan[0].rollback_command
+
+
+def test_sqlite_state_files_are_forbidden_by_suffix(tmp_path: Path) -> None:
+    target = tmp_path / ".codex" / "memory" / "state.sqlite3"
+    action = StewardshipAction(
+        id="bad-sqlite-write",
+        action_class=ActionClass.REPAIR,
+        target_path=str(target),
+        before="",
+        after="sqlite bytes",
+        reason="Should never be allowed.",
+        confidence=1.0,
+    )
+
+    with pytest.raises(ValueError, match="forbidden"):
+        build_apply_plan([action], policy=ChronographSafetyPolicy.for_repo(tmp_path), now=NOW)
+
+
 def test_build_apply_plan_allows_home_level_tool_roots(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

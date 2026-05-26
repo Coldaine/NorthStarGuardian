@@ -51,16 +51,18 @@ PR_META: dict[str, Any] = {
 
 
 def _llm_response(text: str) -> MagicMock:
-    """Mock anthropic response whose .content[0].text == text."""
+    """Mock openai response whose .choices[0].message.content == text."""
     block = MagicMock()
-    block.text = text
+    block.content = text
+    choice = MagicMock()
+    choice.message = block
     resp = MagicMock()
-    resp.content = [block]
+    resp.choices = [choice]
     return resp
 
 
 def _build_mock_client(principle_ids: list[str], verdict: str = "aligned") -> MagicMock:
-    """Mock anthropic client driving the 5 LLM calls of run_interview + assign_saga.
+    """Mock openai client driving the 5 LLM calls of run_interview + assign_saga.
 
     `verdict` controls what evaluate_alignment returns for the (one) relevant
     principle: "aligned", "drift", or "ambiguous".
@@ -82,7 +84,7 @@ def _build_mock_client(principle_ids: list[str], verdict: str = "aligned") -> Ma
     chronicle_prose = f"PR #42 was assessed as {verdict}."
 
     client = MagicMock()
-    client.messages.create.side_effect = [
+    client.chat.completions.create.side_effect = [
         _llm_response(intent_json),
         _llm_response(alignment_json),
         _llm_response("[]"),
@@ -114,7 +116,7 @@ def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
                 "Tests mock LLM calls; no real network access in CI.",
             ],
             "approved_architecture": (
-                "Python 3.11+, Pydantic v2 models, Anthropic SDK for LLM calls, "
+                "Python 3.11+, Pydantic v2 models, OpenAI SDK for LLM calls, "
                 "Jinja2 for templating, unidiff for diff parsing."
             ),
             "anti_patterns": [
@@ -156,12 +158,12 @@ def test_full_pr_interview_cycle(
     assert report.overall_verdict.value == verdict
     assert report.chronicle_paragraph
     assert report.intent.one_line
-    assert client.messages.create.call_count == 4
+    assert client.chat.completions.create.call_count == 4
 
     saga = assign_saga(
         store, report.intent, existing_sagas=[], client=client, model="claude-test-mock",
     )
-    assert client.messages.create.call_count == 5
+    assert client.chat.completions.create.call_count == 5
     assert saga.id
     assert saga.name == "New Saga"
 

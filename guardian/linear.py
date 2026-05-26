@@ -90,6 +90,9 @@ class LinearClient:
         except json.JSONDecodeError as exc:
             raise LinearAPIError("Linear API returned invalid JSON") from exc
 
+        if not isinstance(payload, dict):
+            raise ValueError(f"Expected dict payload, got {type(payload).__name__}")
+
         errors = payload.get("errors")
         if errors:
             message = "; ".join(str(err.get("message", err)) for err in errors)
@@ -119,7 +122,6 @@ class LinearClient:
             updated_by_name = (
                 updated_by.get("displayName")
                 or updated_by.get("name")
-                or updated_by.get("email")
                 or updated_by.get("id")
             )
 

@@ -4,7 +4,7 @@
 #   .github/workflows/guardian.yml
 #
 # Prerequisites:
-#   1. Add ANTHROPIC_API_KEY to repository secrets.
+#   1. Add OPENAI_API_KEY to repository secrets.
 #   2. Add LINEAR_API_KEY too when north_star.source is "linear".
 #   3. Keep the human-facing North Star at docs/northstar.md.
 #   4. Commit .github/guardian/guardian-config.json with your Guardian config.
@@ -44,12 +44,12 @@ jobs:
 
       - name: Interview PR
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "::notice::Skipping Guardian interview because ANTHROPIC_API_KEY is not configured."
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::notice::Skipping Guardian interview because OPENAI_API_KEY is not configured."
             exit 0
           fi
           guardian interview
@@ -76,7 +76,7 @@ jobs:
 
       - name: Dispatch slash command
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: guardian command

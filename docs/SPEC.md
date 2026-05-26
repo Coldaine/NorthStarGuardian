@@ -75,7 +75,7 @@ Guardian may use Linear issues for concrete follow-ups such as policy amendment 
    - Linear source: fetch the configured Linear document
 6. Guardian writes the active copy and snapshot metadata.
 7. Guardian analyzes the diff structurally.
-8. Guardian runs Claude-backed intent, alignment, anti-pattern, and chronicle prompts.
+8. Guardian runs OpenAI-backed intent, alignment, anti-pattern, and chronicle prompts.
 9. Guardian assigns or updates a saga and writes a journal entry.
 10. Guardian regenerates `.github/guardian/memory/dashboard.html`.
 11. Guardian posts the interview report as a PR comment.
@@ -107,7 +107,7 @@ Important fields:
 - `linear.document_id`: Linear document for canonical policy
 - `linear.team_id`: Linear team for created follow-up issues
 - `linear.project_id`: optional Linear project for created follow-up issues
-- `anthropic_model_analysis`: model for review prompts
+- `openai_model_analysis`: model for review prompts
 - `variance_default_days`: default duration for declared variance debt
 - `enable_blocking_escalation`: defaults to `false`
 - `pages_url`: optional direct dashboard URL

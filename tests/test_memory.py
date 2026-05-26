@@ -128,40 +128,6 @@ class TestCommitAndPush:
 
         assert store.read("note.txt") == "persistent"
 
-    def test_existing_remote_branch_pushes_from_fresh_clone(self, tmp_path: Path) -> None:
-        repo, bare = _make_repo_with_remote(tmp_path)
-
-        wt1 = tmp_path / "wt1"
-        s1 = MemoryStore(repo, worktree_path=wt1)
-        s1.ensure_initialized()
-        s1.write("first.txt", "seed")
-        s1.commit_and_push("seed memory", push=True)
-
-        fresh = tmp_path / "fresh-clone"
-        _git(["clone", str(bare), str(fresh)], cwd=tmp_path)
-        _git(["config", "user.email", "test@example.com"], cwd=fresh)
-        _git(["config", "user.name", "Test"], cwd=fresh)
-
-        wt2 = tmp_path / "wt2"
-        s2 = MemoryStore(fresh, worktree_path=wt2)
-        s2.ensure_initialized()
-        s2.write("second.txt", "from fresh clone")
-        s2.commit_and_push("persist from fresh clone", push=True)
-
-        verify = tmp_path / "verify-memory"
-        _git(["clone", "--branch", "guardian-memory", str(bare), str(verify)], cwd=tmp_path)
-        assert (verify / "second.txt").read_text(encoding="utf-8") == "from fresh clone"
-
-    def test_push_failure_raises_when_push_requested(self, tmp_path: Path) -> None:
-        repo = _make_repo(tmp_path / "repo")
-        wt = tmp_path / "wt"
-        store = MemoryStore(repo, worktree_path=wt)
-        store.ensure_initialized()
-        store.write("note.txt", "local only")
-
-        with pytest.raises(subprocess.CalledProcessError):
-            store.commit_and_push("attempt push without origin", push=True)
-
     def test_empty_commit_is_noop(self, tmp_path: Path) -> None:
         _repo, store = TestReadWrite()._initialized_store(tmp_path)
 

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import click
-from anthropic import Anthropic
+from openai import OpenAI
 
 from guardian.github_io import GitHubContext, get_pr_diff, get_pr_meta, post_pr_comment
 from guardian.memory import MemoryStore
@@ -58,6 +58,13 @@ def _load_review_north_star(
 ) -> Any:
     """Load the North Star snapshot for a review run and persist active copy."""
     environ = env if env is not None else os.environ
+    _GUARDIAN_PREFIX = ".github/guardian/"
+    _active = config.north_star.active_copy_path or ".github/guardian/northstar.md"
+    northstar_path = (
+        _active[len(_GUARDIAN_PREFIX):]
+        if _active.startswith(_GUARDIAN_PREFIX)
+        else Path(_active).name
+    )
 
     if config.north_star.source == "linear":
         from guardian.linear import LinearClient
@@ -74,7 +81,7 @@ def _load_review_north_star(
             )
 
         snapshot = LinearClient(api_key).fetch_document(config.linear.document_id)
-        store.write("northstar.md", snapshot.content)
+        store.write(northstar_path, snapshot.content)
         store.write_json(
             "memory/northstar-snapshot.json",
             snapshot.model_dump(mode="json"),
@@ -87,7 +94,7 @@ def _load_review_north_star(
         path=config.north_star.repo_path,
         ref=ref,
     )
-    store.write("northstar.md", content)
+    store.write(northstar_path, content)
     store.write_json(
         "memory/northstar-snapshot.json",
         {
@@ -136,14 +143,14 @@ def _create_linear_amendment_issue(
     )
 
 
-def _make_anthropic_client() -> Anthropic:
-    """Construct an Anthropic client from the environment."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+def _make_openai_client() -> OpenAI:
+    """Construct an OpenAI client from the environment."""
+    api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise click.ClickException(
-            "ANTHROPIC_API_KEY environment variable is not set."
+            "OPENAI_API_KEY environment variable is not set."
         )
-    return Anthropic(api_key=api_key)
+    return OpenAI(api_key=api_key)
 
 
 def _make_store(repo_root: Path | None = None) -> MemoryStore:
@@ -283,7 +290,7 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
     store.ensure_initialized()
 
     config = _load_config(store)
-    client = _make_anthropic_client()
+    client = _make_openai_client()
 
     # Build GitHub context.
     ctx = GitHubContext.from_env(event_path=event_path)
@@ -307,7 +314,7 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
         diff_analysis,
         north_star,
         client=client,
-        model=config.anthropic_model_analysis,
+        model=config.openai_model_analysis,
     )
 
     # 5. Load existing sagas and assign the saga for this PR.
@@ -323,7 +330,7 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
         report.intent,
         all_sagas,
         client=client,
-        model=config.anthropic_model_analysis,
+        model=config.openai_model_analysis,
     )
     chronicle.update_saga(store, saga, report.pr_number)
     report = report.model_copy(update={"saga_id": saga.id})
@@ -452,9 +459,8 @@ def _handle_re_anchor(
             f"## Guardian Re-Anchor\n\n"
             f"**Current identity:** {north_star.identity_statement}\n\n"
             f"**Principles:**\n{principles_text}\n\n"
-            "To refresh these from the configured source, run `/re-anchor`. "
-            "For repo-backed policy, update `docs/northstar.md`; for "
-            "Linear-backed policy, update the configured Linear document."
+            "Re-anchoring to current North Star sources. "
+            "Run /show-northstar to verify the updated anchor."
         )
     except FileNotFoundError:
         reply = (

@@ -3,7 +3,7 @@
   "version": 1,
   "project_name": "NorthStarGuardian",
   "identity_statement": "NorthStarGuardian is an advisory GitHub review agent that evaluates pull requests against a repository's declared North Star. It is not a merge gate by default, a hidden storage system, or a replacement for human product judgment.",
-  "approved_architecture": "Guardian runs from GitHub Actions through the `guardian` CLI. Python modules under `guardian/` own domain behavior, Anthropic-backed prompts perform semantic review, Linear integration handles optional external policy and follow-up routing, and Guardian-owned artifacts are visible under `.github/guardian/`.",
+  "approved_architecture": "Guardian runs from GitHub Actions through the `guardian` CLI. Python modules under `guardian/` own domain behavior, OpenAI-backed prompts perform semantic review, Linear integration handles optional external policy and follow-up routing, and Guardian-owned artifacts are visible under `.github/guardian/`.",
   "created_at": "2026-05-26T00:00:00+00:00",
   "principles": [
     {
@@ -68,7 +68,7 @@ NorthStarGuardian is an advisory GitHub review agent that evaluates pull request
 
 ## Approved Architecture
 
-Guardian runs from GitHub Actions through the `guardian` CLI. Python modules under `guardian/` own domain behavior, Anthropic-backed prompts perform semantic review, Linear integration handles optional external policy and follow-up routing, and Guardian-owned artifacts are visible under `.github/guardian/`.
+Guardian runs from GitHub Actions through the `guardian` CLI. Python modules under `guardian/` own domain behavior, OpenAI-backed prompts perform semantic review, Linear integration handles optional external policy and follow-up routing, and Guardian-owned artifacts are visible under `.github/guardian/`.
 
 ## Anti-Patterns
 

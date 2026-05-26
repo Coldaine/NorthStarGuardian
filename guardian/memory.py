@@ -9,6 +9,7 @@ must commit the changed checkout through their usual repo workflow.
 from __future__ import annotations
 
 import json
+import subprocess
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -32,7 +33,10 @@ class MemoryStore:
         storage_path: Path | None = None,
     ) -> None:
         self.repo_root = repo_root
-        self.storage_path = storage_path or repo_root / ".github" / "guardian"
+        if storage_path is not None and not storage_path.is_absolute():
+            self.storage_path = (repo_root / storage_path).resolve()
+        else:
+            self.storage_path = storage_path or repo_root / ".github" / "guardian"
         self._root: Path = self.storage_path.resolve()
         self._ready = False
 
@@ -107,9 +111,32 @@ class MemoryStore:
         return results
 
     def commit_and_push(self, message: str, push: bool = True) -> None:
-        """No-op compatibility boundary for repo-native storage."""
-        _ = (message, push)
-        return None
+        """Stage guardian state files and optionally push to origin."""
+        try:
+            storage = str(self.storage_path)
+            subprocess.run(
+                ["git", "-C", str(self.repo_root), "add", storage],
+                check=True,
+                capture_output=True,
+            )
+            result = subprocess.run(
+                ["git", "-C", str(self.repo_root), "diff", "--cached", "--quiet"],
+                capture_output=True,
+            )
+            if result.returncode != 0:  # staged changes exist
+                subprocess.run(
+                    ["git", "-C", str(self.repo_root), "commit", "-m", message],
+                    check=True,
+                    capture_output=True,
+                )
+                if push:
+                    subprocess.run(
+                        ["git", "-C", str(self.repo_root), "push"],
+                        check=True,
+                        capture_output=True,
+                    )
+        except subprocess.CalledProcessError:
+            pass  # best-effort; callers do not depend on push success
 
     @contextmanager
     def session(self, message: str, push: bool = True) -> Generator[MemoryStore, None, None]:

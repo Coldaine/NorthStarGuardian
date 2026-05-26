@@ -29,11 +29,11 @@ _REPO_NORTH_STAR_PATH = "docs/northstar.md"
 # Markdown round-trip
 # ---------------------------------------------------------------------------
 
-_FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
+_FRONTMATTER_RE = re.compile(r"^---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 
 
 def parse_north_star_markdown(text: str) -> NorthStar:
-    """Parse a North Star from its Markdown+YAML-frontmatter representation."""
+    """Parse a North Star from its Markdown+JSON-frontmatter representation."""
     m = _FRONTMATTER_RE.match(text)
     if not m:
         raise ValueError("northstar.md is missing YAML frontmatter")

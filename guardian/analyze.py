@@ -231,18 +231,22 @@ def _call_llm(
     user: str,
     max_tokens: int = 4096,
 ) -> str:
-    """Call client.messages.create and return the first text block content."""
-    response = client.messages.create(
+    """Call client.chat.completions.create and return the first text content."""
+    messages: list[dict[str, str]] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": user})
+    response = client.chat.completions.create(
         model=model,
         max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user}],
+        messages=messages,
     )
-    # Extract text from first content block
-    for block in response.content:
-        if hasattr(block, "text"):
-            return block.text
-    raise LLMOutputError("LLM response contained no text content block")
+    if not response.choices or response.choices[0].message.content is None:
+        raise LLMOutputError("LLM returned empty response")
+    content = response.choices[0].message.content
+    if content:
+        return content
+    raise LLMOutputError("LLM response contained no text content")
 
 
 def _parse_json_response(raw: str, context: str) -> Any:
@@ -287,7 +291,7 @@ def evaluate_alignment(
     north_star:
         The project's North Star document.
     client:
-        An ``anthropic.Anthropic`` (or compatible) client instance.
+        An ``openai.OpenAI`` (or compatible) client instance.
     model:
         Model identifier string.
 
@@ -665,7 +669,7 @@ def run_interview(
     north_star:
         The project's North Star.
     client:
-        Anthropic client instance.
+        OpenAI client instance.
     model:
         Model identifier string.
     pr_meta:

@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 _CHRONOGRAPH_ROOT = ".github/guardian/chronograph"
 _AUDIT_PATH = f"{_CHRONOGRAPH_ROOT}/audit.jsonl"
 _BACKUP_ROOT = f"{_CHRONOGRAPH_ROOT}/backups"
+_SAFE_RTK_INCLUDE = "@c:/users/pmacl/.codex/rtk.md"
 
 
 class ActionClass(StrEnum):
@@ -450,24 +451,17 @@ def _can_auto_apply(action: StewardshipAction, policy: ChronographSafetyPolicy) 
     if action.destructive or action.action_class == ActionClass.RETIRE:
         return False
 
-    target = policy.resolve_target(action.target_path)
-    if _is_under(target, policy.chronograph_root):
-        return True
+    if action.confidence < 0.9 or action.metadata.get("operation") != "add_missing_include":
+        return False
 
-    high_confidence_operations = {
-        "add_missing_include",
-        "normalize_known_safe_setting",
-        "add_chronograph_marker",
-        "promote_stable_memory",
-    }
     if action.metadata.get("operation") == "add_missing_include":
         include = str(action.metadata.get("include") or _detect_missing_include(action.before, action.after, ""))
         if not _is_known_safe_include(include):
             return False
-        if not _is_pure_additive_change(action.before, action.after):
+        if not _adds_only_known_safe_include(action.before, action.after):
             return False
 
-    return action.confidence >= 0.9 and action.metadata.get("operation") in high_confidence_operations
+    return True
 
 
 def _unified_diff(before: str, after: str, target_path: str) -> str:
@@ -496,24 +490,58 @@ def _plan_action_mismatch(
         return "plan does not match source action"
     if item.destructive != action.destructive or item.approved != action.approved:
         return "plan does not match source action"
+    timestamp = _extract_backup_timestamp(item.backup_path, policy)
+    if timestamp is None:
+        return "plan does not match source action"
+    target = policy.resolve_target(action.target_path)
+    expected_backup = _backup_path(policy, target, action.id, timestamp)
+    expected_rollback = _rollback_command(expected_backup, target, item.target_existed)
+    if Path(item.backup_path).resolve() != expected_backup.resolve():
+        return "plan does not match source action"
+    if item.rollback_command != expected_rollback:
+        return "plan does not match source action"
     return None
 
 
 def _is_known_safe_include(include: str) -> bool:
     normalized = include.strip().lstrip("@").replace("\\", "/").lower()
-    return normalized.endswith("/rtk.md") or normalized == "rtk.md"
+    return f"@{normalized}" == _SAFE_RTK_INCLUDE
 
 
-def _is_pure_additive_change(before: str, after: str) -> bool:
+def _adds_only_known_safe_include(before: str, after: str) -> bool:
+    added_lines = _added_lines(before, after)
+    if not added_lines:
+        return False
+    return all(_is_known_safe_include(line) for line in added_lines)
+
+
+def _added_lines(before: str, after: str) -> list[str]:
     before_lines = before.splitlines()
     after_lines = after.splitlines()
+    added: list[str] = []
     cursor = 0
     for line in before_lines:
-        try:
-            cursor = after_lines.index(line, cursor) + 1
-        except ValueError:
-            return False
-    return len(after_lines) > len(before_lines)
+        while cursor < len(after_lines) and after_lines[cursor] != line:
+            stripped = after_lines[cursor].strip()
+            if stripped:
+                added.append(stripped)
+            cursor += 1
+        if cursor >= len(after_lines):
+            return []
+        cursor += 1
+    for line in after_lines[cursor:]:
+        stripped = line.strip()
+        if stripped:
+            added.append(stripped)
+    return added
+
+
+def _extract_backup_timestamp(backup_path: str, policy: ChronographSafetyPolicy) -> str | None:
+    try:
+        relative = Path(backup_path).resolve().relative_to(policy.backup_root.resolve())
+    except ValueError:
+        return None
+    return relative.parts[0] if relative.parts else None
 
 
 def _timestamp(now: datetime | None) -> str:
@@ -614,7 +642,18 @@ def _is_forbidden_path(lowered_parts: list[str], lowered_name: str) -> bool:
         "state.db",
     }
     forbidden_fragments = ("credential", "secret", "token", "auth")
-    forbidden_suffixes = (".db", ".sqlite", ".sqlite3", ".duckdb")
+    forbidden_suffixes = (
+        ".db",
+        ".db-shm",
+        ".db-wal",
+        ".duckdb",
+        ".sqlite",
+        ".sqlite-shm",
+        ".sqlite-wal",
+        ".sqlite3",
+        ".sqlite3-shm",
+        ".sqlite3-wal",
+    )
 
     if any(part in forbidden_parts for part in lowered_parts):
         return True

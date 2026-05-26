@@ -139,7 +139,7 @@ class TestReadWrite:
     def test_write_stages_to_store(self, fake_store: FakeStore) -> None:
         c = _sample_north_star()
         write_north_star(fake_store, c)
-        assert fake_store.exists("north-star.md")
+        assert fake_store.exists("northstar.md")
 
 
 # ---------------------------------------------------------------------------
@@ -293,16 +293,16 @@ class TestAmendmentLog:
 
     def test_append_creates_log(self, fake_store: FakeStore) -> None:
         append_amendment(fake_store, self._make_amendment())
-        assert fake_store.exists("meta/amendment-log.md")
+        assert fake_store.exists("memory/amendment-log.md")
 
     def test_append_contains_actor(self, fake_store: FakeStore) -> None:
         append_amendment(fake_store, self._make_amendment())
-        log = fake_store.read("meta/amendment-log.md")
+        log = fake_store.read("memory/amendment-log.md")
         assert "alice" in log
 
     def test_append_contains_rationale(self, fake_store: FakeStore) -> None:
         append_amendment(fake_store, self._make_amendment())
-        log = fake_store.read("meta/amendment-log.md")
+        log = fake_store.read("memory/amendment-log.md")
         assert "Scope changed" in log
 
     def test_append_is_cumulative(self, fake_store: FakeStore) -> None:
@@ -318,7 +318,7 @@ class TestAmendmentLog:
         )
         append_amendment(fake_store, a1)
         append_amendment(fake_store, a2)
-        log = fake_store.read("meta/amendment-log.md")
+        log = fake_store.read("memory/amendment-log.md")
         assert "alice" in log
         assert "bob" in log
 

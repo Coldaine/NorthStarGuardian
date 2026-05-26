@@ -1,15 +1,15 @@
 """Governance tools for NorthStarGuardian.
 
 Implements:
-    log_drift         — append a DriftEvent to drift-ledger.json
+    log_drift         — append a DriftEvent to memory/drift-ledger.json
     grant_variance    — create a DebtTimer from a VarianceTag
     check_debt_timers — classify active timers by escalation level
     escalate_debt     — bump a timer's DebtLevel
     resolve_debt      — mark a timer resolved
 
-All state lives in JSON files on the guardian-memory orphan branch, accessed
-through a MemoryStore instance.  Functions perform read-modify-write; callers
-are responsible for concurrency if needed.
+State lives in JSON files under ``.github/guardian/memory`` through a
+MemoryStore instance.  Functions perform read-modify-write; callers are
+responsible for concurrency if needed.
 
 Blocking-escalation behavior is gated by ``GuardianConfig.enable_blocking_escalation``
 (default False).  The escalation machinery always records the level change; the
@@ -41,8 +41,8 @@ if TYPE_CHECKING:
 # File paths within the MemoryStore
 # ---------------------------------------------------------------------------
 
-_DRIFT_LEDGER = "drift-ledger.json"
-_DEBT_TIMERS = "debt-timers.json"
+_DRIFT_LEDGER = "memory/drift-ledger.json"
+_DEBT_TIMERS = "memory/debt-timers.json"
 
 # Threshold: timers beyond this fraction of their lifespan get a 75% reminder.
 _REMINDER_75_FRACTION = 0.75
@@ -156,7 +156,7 @@ def log_drift(
     details: str,
     now: datetime | None = None,
 ) -> DriftEvent:
-    """Append a drift event to ``drift-ledger.json`` and return it.
+    """Append a drift event to ``memory/drift-ledger.json`` and return it.
 
     Parameters
     ----------

@@ -7,6 +7,7 @@ lives in the imported modules; this file is only orchestration and I/O.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from datetime import UTC, datetime
@@ -22,19 +23,22 @@ from guardian.models import GuardianConfig
 from guardian.north_star import (
     amend_north_star,
     initialize_north_star,
+    parse_north_star_markdown,
     read_north_star,
+    read_repo_north_star_markdown,
     write_north_star,
+    write_repo_north_star,
 )
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-_CONFIG_PATH = "meta/guardian-config.json"
+_CONFIG_PATH = "guardian-config.json"
 
 
 def _load_config(store: MemoryStore) -> GuardianConfig:
-    """Read GuardianConfig from the memory branch, defaulting if absent."""
+    """Read GuardianConfig from .github/guardian, defaulting if absent."""
     if store.exists(_CONFIG_PATH):
         try:
             raw = store.read_json(_CONFIG_PATH)
@@ -42,6 +46,94 @@ def _load_config(store: MemoryStore) -> GuardianConfig:
         except Exception:
             pass
     return GuardianConfig()
+
+
+def _load_review_north_star(
+    root: Path,
+    store: MemoryStore,
+    config: GuardianConfig,
+    pr_meta: dict[str, Any],
+    *,
+    env: dict[str, str] | None = None,
+) -> Any:
+    """Load the North Star snapshot for a review run and persist active copy."""
+    environ = env if env is not None else os.environ
+
+    if config.north_star.source == "linear":
+        from guardian.linear import LinearClient
+
+        if not config.linear.document_id:
+            raise click.ClickException(
+                "Guardian is configured for Linear North Star source but "
+                "linear.document_id is not set."
+            )
+        api_key = environ.get("LINEAR_API_KEY")
+        if not api_key:
+            raise click.ClickException(
+                "LINEAR_API_KEY environment variable is not set."
+            )
+
+        snapshot = LinearClient(api_key).fetch_document(config.linear.document_id)
+        store.write("northstar.md", snapshot.content)
+        store.write_json(
+            "memory/northstar-snapshot.json",
+            snapshot.model_dump(mode="json"),
+        )
+        return parse_north_star_markdown(snapshot.content)
+
+    ref = pr_meta.get("base_sha") or None
+    content = read_repo_north_star_markdown(
+        root,
+        path=config.north_star.repo_path,
+        ref=ref,
+    )
+    store.write("northstar.md", content)
+    store.write_json(
+        "memory/northstar-snapshot.json",
+        {
+            "source": "repo",
+            "path": config.north_star.repo_path,
+            "ref": ref,
+            "fetched_at": datetime.now(tz=UTC).isoformat(),
+            "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        },
+    )
+    return parse_north_star_markdown(content)
+
+
+def _create_linear_amendment_issue(
+    config: GuardianConfig,
+    *,
+    target_id: str,
+    new_text: str,
+    actor: str,
+    env: dict[str, str] | None = None,
+) -> Any:
+    """Create a Linear issue for a requested North Star amendment."""
+    from guardian.linear import LinearClient
+
+    environ = env if env is not None else os.environ
+    api_key = environ.get("LINEAR_API_KEY")
+    if not api_key:
+        raise click.ClickException("LINEAR_API_KEY environment variable is not set.")
+    if not config.linear.team_id:
+        raise click.ClickException(
+            "Linear-backed amendments require linear.team_id in Guardian config."
+        )
+
+    description = (
+        f"Requested by @{actor} via Guardian `/amend`.\n\n"
+        f"Target principle: `{target_id}`\n\n"
+        "Proposed text:\n\n"
+        f"{new_text}\n\n"
+        "Review and apply this in the canonical Linear North Star document."
+    )
+    return LinearClient(api_key).create_issue(
+        team_id=config.linear.team_id,
+        project_id=config.linear.project_id,
+        title=f"Review North Star amendment for {target_id}",
+        description=description,
+    )
 
 
 def _make_anthropic_client() -> Anthropic:
@@ -150,7 +242,7 @@ def _format_report_comment(report: Any, config: GuardianConfig) -> str:
 
     # Footer.
     if config.pages_url:
-        lines.append(f"[View Dashboard]({config.pages_url}/dashboard.html)")
+        lines.append(f"[View Dashboard]({config.pages_url})")
 
     return "\n".join(lines)
 
@@ -207,8 +299,8 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
     # 2. Analyze diff (pre-LLM structural extraction).
     diff_analysis = analyze.analyze_diff(diff, meta)
 
-    # 3. Read North Star.
-    north_star = read_north_star(store)
+    # 3. Load the base-branch/Linear North Star and persist Guardian's active copy.
+    north_star = _load_review_north_star(root, store, config, meta)
 
     # 4. Run LLM interview.
     report = analyze.run_interview(
@@ -242,7 +334,7 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
     # 7. Render dashboard.
     dashboard.render_dashboard(store, north_star)
 
-    # 8. Commit everything to guardian-memory.
+    # 8. Flush repo-native Guardian state.
     pr_num = ctx.pr.number
     with store.session(
         f"guardian: interview PR #{pr_num} — {report.overall_verdict.value}"
@@ -330,12 +422,13 @@ def _handle_init_guardian(
     """Handle /init-guardian — post instructions to run init-local."""
     reply = (
         "## Guardian Setup\n\n"
-        "To initialize the Guardian North Star for this repository, run the "
+        "To initialize the repo North Star and Guardian active copy, run the "
         "following command locally:\n\n"
         "```\nguardian init-local\n```\n\n"
-        "This will walk you through the guided setup flow interactively. "
-        "Once complete, the North Star will be committed to the "
-        "`guardian-memory` branch."
+        "This writes `docs/northstar.md` for humans and "
+        "`.github/guardian/northstar.md` for Guardian's active copy. "
+        "Configure Linear in `.github/guardian/guardian-config.json` when "
+        "Linear should be the canonical policy surface."
     )
     if ctx.pr:
         post_pr_comment(ctx, reply)
@@ -359,12 +452,14 @@ def _handle_re_anchor(
             f"## Guardian Re-Anchor\n\n"
             f"**Current identity:** {north_star.identity_statement}\n\n"
             f"**Principles:**\n{principles_text}\n\n"
-            "To update these, run `guardian init-local` locally, or use "
-            "`/amend <principle-id> \"new text\"` for targeted amendments."
+            "To refresh these from the configured source, run `/re-anchor`. "
+            "For repo-backed policy, update `docs/northstar.md`; for "
+            "Linear-backed policy, update the configured Linear document."
         )
     except FileNotFoundError:
         reply = (
-            "Guardian: no North Star found. Run `guardian init-local` first."
+            "Guardian: no active North Star found. Run `guardian init-local` "
+            "or configure `.github/guardian/guardian-config.json` first."
         )
 
     if ctx.pr:
@@ -396,24 +491,37 @@ def _handle_amend(
     actor = ctx.event_payload.get("comment", {}).get("user", {}).get("login", "unknown")
 
     try:
-        updated = amend_north_star(
-            store,
-            target="principle",
-            target_id=target_id,
-            after=new_text,
-            rationale=f"Amended via /amend slash command by @{actor}",
-            actor=actor,
-        )
-        with store.session(f"guardian: amend principle {target_id} via slash command"):
-            pass
+        if config.north_star.source == "linear":
+            issue = _create_linear_amendment_issue(
+                config,
+                target_id=target_id,
+                new_text=new_text,
+                actor=actor,
+            )
+            reply = (
+                "## Guardian Amendment Proposed\n\n"
+                "Linear-backed North Stars are not edited from PR comments. "
+                f"Created `{issue.identifier}` for review: {issue.url}"
+            )
+        else:
+            updated = amend_north_star(
+                store,
+                target="principle",
+                target_id=target_id,
+                after=new_text,
+                rationale=f"Amended via /amend slash command by @{actor}",
+                actor=actor,
+            )
+            with store.session(f"guardian: amend principle {target_id} via slash command"):
+                pass
 
-        reply = (
-            f"## Guardian Amendment Applied\n\n"
-            f"**Principle `{target_id}`** updated to:\n\n"
-            f"> {new_text}\n\n"
-            f"North Star version is now **v{updated.version}**."
-        )
-    except (ValueError, FileNotFoundError) as exc:
+            reply = (
+                f"## Guardian Amendment Applied\n\n"
+                f"**Principle `{target_id}`** updated to:\n\n"
+                f"> {new_text}\n\n"
+                f"North Star version is now **v{updated.version}**."
+            )
+    except (ValueError, FileNotFoundError, click.ClickException) as exc:
         reply = f"Guardian: amendment failed — {exc}"
 
     if ctx.pr:
@@ -471,14 +579,14 @@ def _handle_dashboard(
             reply = (
                 f"## Guardian Dashboard\n\n"
                 f"Dashboard has been regenerated. "
-                f"[View it here]({config.pages_url}/dashboard.html)."
+                f"[View it here]({config.pages_url})."
             )
         else:
             reply = (
                 "## Guardian Dashboard\n\n"
-                "Dashboard has been regenerated on the `guardian-memory` branch. "
-                "Browse to `dashboard.html` on that branch to view it, or configure "
-                "`pages_url` in `meta/guardian-config.json` for a direct link."
+                "Dashboard has been regenerated at "
+                "`.github/guardian/memory/dashboard.html`. Configure `pages_url` "
+                "in `.github/guardian/guardian-config.json` for a direct link."
             )
     except Exception as exc:
         reply = f"Guardian: error regenerating dashboard — {exc}"
@@ -689,9 +797,12 @@ def init_local(repo_root: str) -> None:
 
     north_star = initialize_north_star(answers, actor="local-setup")
 
-    click.echo("\nInitializing guardian-memory branch…")
+    click.echo("\nInitializing .github/guardian state...")
     store.ensure_initialized()
+    write_repo_north_star(root, north_star)
     write_north_star(store, north_star, rationale="Initial North Star via init-local")
+    if not store.exists(_CONFIG_PATH):
+        store.write_json(_CONFIG_PATH, GuardianConfig().model_dump(mode="json"))
 
     with store.session("guardian: initialize North Star via init-local"):
         pass
@@ -701,6 +812,8 @@ def init_local(repo_root: str) -> None:
         f"{len(north_star.principles)} principles and "
         f"{len(north_star.anti_patterns)} anti-patterns."
     )
+    click.echo("Repo source: docs/northstar.md")
+    click.echo("Guardian active copy: .github/guardian/northstar.md")
     click.echo("Guardian is ready.")
 
 
@@ -733,7 +846,8 @@ def preview_dashboard(output: str, repo_root: str) -> None:
         north_star = read_north_star(store)
     except FileNotFoundError as err:
         raise click.ClickException(
-            "No North Star found on guardian-memory. Run `guardian init-local` first."
+            "No Guardian active North Star found at "
+            "`.github/guardian/northstar.md`. Run `guardian init-local` first."
         ) from err
 
     html = dashboard.render_dashboard(store, north_star)

@@ -118,8 +118,8 @@ class TestLogDrift:
             details="Test drift.",
             now=_fixed_now(),
         )
-        assert store.exists("drift-ledger.json")
-        ledger = store.read_json("drift-ledger.json")
+        assert store.exists("memory/drift-ledger.json")
+        ledger = store.read_json("memory/drift-ledger.json")
         assert len(ledger) == 1
         assert ledger[0]["pr_number"] == 10
 
@@ -128,7 +128,7 @@ class TestLogDrift:
                   severity=DriftSeverity.LOW, details="First")
         log_drift(store, pr_number=2, principle_id="P2",
                   severity=DriftSeverity.HIGH, details="Second")
-        ledger = store.read_json("drift-ledger.json")
+        ledger = store.read_json("memory/drift-ledger.json")
         assert len(ledger) == 2
 
     def test_accepts_string_severity(self, store: _FakeStore) -> None:
@@ -151,7 +151,7 @@ class TestLogDrift:
     def test_timestamp_stored_as_iso(self, store: _FakeStore) -> None:
         log_drift(store, pr_number=1, principle_id="P1",
                   severity=DriftSeverity.LOW, details="ts test", now=_fixed_now())
-        ledger = store.read_json("drift-ledger.json")
+        ledger = store.read_json("memory/drift-ledger.json")
         assert "2026-05-22" in ledger[0]["timestamp"]
 
 
@@ -200,8 +200,8 @@ class TestGrantVariance:
     def test_persists_to_store(self, store: _FakeStore, config: GuardianConfig) -> None:
         tag = _make_variance_tag()
         grant_variance(store, tag, pr_number=42, config=config, now=_fixed_now())
-        assert store.exists("debt-timers.json")
-        timers = store.read_json("debt-timers.json")
+        assert store.exists("memory/debt-timers.json")
+        timers = store.read_json("memory/debt-timers.json")
         assert len(timers) == 1
 
     def test_affected_paths_stored(
@@ -213,7 +213,7 @@ class TestGrantVariance:
             affected_paths=["src/foo.py", "src/bar.py"],
         )
         assert timer.affected_paths == ["src/foo.py", "src/bar.py"]
-        raw = store.read_json("debt-timers.json")
+        raw = store.read_json("memory/debt-timers.json")
         assert raw[0]["affected_paths"] == ["src/foo.py", "src/bar.py"]
 
     def test_multiple_timers_append(
@@ -223,7 +223,7 @@ class TestGrantVariance:
         tag2 = _make_variance_tag("P2")
         grant_variance(store, tag1, pr_number=1, config=config)
         grant_variance(store, tag2, pr_number=2, config=config)
-        timers = store.read_json("debt-timers.json")
+        timers = store.read_json("memory/debt-timers.json")
         assert len(timers) == 2
 
 
@@ -351,7 +351,7 @@ class TestEscalateDebt:
     ) -> None:
         debt_id = self._create_timer_and_get_id(store, config)
         escalate_debt(store, debt_id, new_level=DebtLevel.REMINDER_EXPIRED, config=config)
-        timers = store.read_json("debt-timers.json")
+        timers = store.read_json("memory/debt-timers.json")
         updated = next(t for t in timers if t["id"] == debt_id)
         assert updated["level"] == int(DebtLevel.REMINDER_EXPIRED)
 
@@ -419,7 +419,7 @@ class TestEscalateDebtResult:
             store, debt_id, new_level=DebtLevel.BLOCKING, config=config
         )
         assert timer.level == DebtLevel.BLOCKING
-        raw = store.read_json("debt-timers.json")
+        raw = store.read_json("memory/debt-timers.json")
         persisted = next(t for t in raw if t["id"] == debt_id)
         assert persisted["level"] == int(DebtLevel.BLOCKING)
 
@@ -448,7 +448,7 @@ class TestResolveDebt:
     ) -> None:
         debt_id = self._create_timer(store, config)
         resolve_debt(store, debt_id)
-        raw = store.read_json("debt-timers.json")
+        raw = store.read_json("memory/debt-timers.json")
         timer_raw = next(t for t in raw if t["id"] == debt_id)
         assert timer_raw["resolved_at"] is not None
 

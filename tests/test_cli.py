@@ -7,11 +7,13 @@ dependencies (GitHub, Anthropic, MemoryStore) are mocked at the boundary.
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from guardian.cli import cli, parse_slash_command
@@ -143,6 +145,121 @@ def _make_journal_entry(pr_number: int = 42) -> JournalEntry:
     )
 
 
+def _git(args: list[str], cwd: Path) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=str(cwd),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def _init_git_repo(path: Path) -> None:
+    _git(["init", "-b", "main"], cwd=path)
+    _git(["config", "user.email", "test@example.com"], cwd=path)
+    _git(["config", "user.name", "Test"], cwd=path)
+
+
+# ---------------------------------------------------------------------------
+# Review North Star loading
+# ---------------------------------------------------------------------------
+
+
+class TestReviewNorthStarLoading:
+    def test_repo_source_reads_base_ref_and_updates_active_copy(self, tmp_path: Path) -> None:
+        from guardian.cli import _load_review_north_star
+        from guardian.memory import MemoryStore
+        from guardian.north_star import write_repo_north_star
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+
+        base = _make_north_star().model_copy(update={"project_name": "BasePolicy"})
+        head = _make_north_star().model_copy(update={"project_name": "HeadPolicy"})
+        write_repo_north_star(repo, base)
+        _git(["add", "docs/northstar.md"], cwd=repo)
+        _git(["commit", "-m", "add base north star"], cwd=repo)
+        write_repo_north_star(repo, head)
+
+        store = MemoryStore(repo)
+        store.ensure_initialized()
+
+        north_star = _load_review_north_star(
+            repo,
+            store,
+            GuardianConfig(),
+            {"base_sha": "HEAD"},
+        )
+
+        assert north_star.project_name == "BasePolicy"
+        assert "BasePolicy" in store.read("northstar.md")
+        assert store.read_json("memory/northstar-snapshot.json")["source"] == "repo"
+
+    def test_linear_source_requires_api_key(self, tmp_path: Path) -> None:
+        from click import ClickException
+
+        from guardian.cli import _load_review_north_star
+        from guardian.memory import MemoryStore
+
+        store = MemoryStore(tmp_path)
+        store.ensure_initialized()
+        config = GuardianConfig(
+            north_star={"source": "linear"},
+            linear={"document_id": "doc-1"},
+        )
+
+        with pytest.raises(ClickException, match="LINEAR_API_KEY"):
+            _load_review_north_star(tmp_path, store, config, {}, env={})
+
+    def test_linear_source_fetches_document_and_writes_snapshot(
+        self, tmp_path: Path,
+    ) -> None:
+        from guardian.cli import _load_review_north_star
+        from guardian.linear import LinearDocumentSnapshot
+        from guardian.memory import MemoryStore
+
+        store = MemoryStore(tmp_path)
+        store.ensure_initialized()
+        config = GuardianConfig(
+            north_star={"source": "linear"},
+            linear={"document_id": "doc-1"},
+        )
+        content = _make_north_star().model_copy(
+            update={"project_name": "LinearPolicy"}
+        )
+
+        fake_client = MagicMock()
+        from guardian.north_star import render_north_star_markdown
+
+        fake_client.fetch_document.return_value = LinearDocumentSnapshot(
+            document_id="doc-1",
+            document_content_id="content-1",
+            title="Linear North Star",
+            url="https://linear.app/acme/document/doc-1",
+            updated_at="2026-05-26T12:00:00.000Z",
+            updated_by="Ada",
+            fetched_at=datetime(2026, 5, 26, tzinfo=UTC),
+            sha256="a" * 64,
+            content=render_north_star_markdown(content),
+        )
+
+        with patch("guardian.linear.LinearClient", return_value=fake_client):
+            north_star = _load_review_north_star(
+                tmp_path,
+                store,
+                config,
+                {},
+                env={"LINEAR_API_KEY": "lin-test"},
+            )
+
+        assert north_star.project_name == "LinearPolicy"
+        assert "LinearPolicy" in store.read("northstar.md")
+        assert store.read_json("memory/northstar-snapshot.json")["document_id"] == "doc-1"
+
+
 # ---------------------------------------------------------------------------
 # guardian preview-dashboard
 # ---------------------------------------------------------------------------
@@ -269,7 +386,7 @@ class TestInterview:
             patch("guardian.cli.GitHubContext") as mock_ctx_cls,
             patch("guardian.cli.get_pr_diff", return_value="diff --git ..."),
             patch("guardian.cli.get_pr_meta", return_value={"number": 42, "title": "Add feature", "body": "", "author": "dev", "base_sha": "abc", "head_sha": "def"}),
-            patch("guardian.cli.read_north_star", return_value=north_star),
+            patch("guardian.cli._load_review_north_star", return_value=north_star),
             patch("guardian.cli._make_anthropic_client", return_value=MagicMock()),
             patch("guardian.cli._load_config", return_value=GuardianConfig()),
             patch("guardian.cli.post_pr_comment") as mock_post,

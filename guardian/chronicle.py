@@ -139,13 +139,13 @@ def _compose_journal_markdown(
 
 def _load_saga_index(store: MemoryStore) -> dict[str, Any]:
     """Return the saga index dict, creating an empty one if absent."""
-    if store.exists("sagas/_index.json"):
-        return store.read_json("sagas/_index.json")
+    if store.exists("memory/sagas/_index.json"):
+        return store.read_json("memory/sagas/_index.json")
     return {"sagas": []}
 
 
 def _save_saga_index(store: MemoryStore, index: dict[str, Any]) -> None:
-    store.write_json("sagas/_index.json", index)
+    store.write_json("memory/sagas/_index.json", index)
 
 
 def _saga_from_index_entry(entry: dict[str, Any]) -> Saga:
@@ -186,7 +186,7 @@ def _saga_to_frontmatter(saga: Saga) -> str:
 
 def _load_saga_from_store(store: MemoryStore, saga_id: str) -> Saga:
     """Read and parse a saga file from the store."""
-    raw = store.read(f"sagas/{saga_id}.md")
+    raw = store.read(f"memory/sagas/{saga_id}.md")
     # Parse YAML frontmatter between --- delimiters
     parts = raw.split("---", 2)
     if len(parts) < 3:
@@ -259,11 +259,11 @@ def write_journal_entry(
 ) -> JournalEntry:
     """Compose and persist a narrative journal entry for *report*.
 
-    The file is written to ``journal/YYYY-MM-DD-pr-NN.md``.
+    The file is written to ``memory/journal/YYYY-MM-DD-pr-NN.md``.
     Returns the created :class:`JournalEntry`.
     """
     date_str = report.created_at.strftime("%Y-%m-%d")
-    filename = f"journal/{date_str}-pr-{report.pr_number}.md"
+    filename = f"memory/journal/{date_str}-pr-{report.pr_number}.md"
     body = _compose_journal_markdown(report, saga)
     store.write(filename, body)
 
@@ -337,7 +337,7 @@ def assign_saga(
     )
 
     # Persist the new saga file
-    store.write(f"sagas/{unique_slug}.md", _saga_to_frontmatter(new_saga))
+    store.write(f"memory/sagas/{unique_slug}.md", _saga_to_frontmatter(new_saga))
 
     # Update index
     index = _load_saga_index(store)
@@ -377,7 +377,7 @@ def update_saga(store: MemoryStore, saga: Saga, pr_number: int) -> Saga:
     )
 
     # Persist saga file
-    store.write(f"sagas/{updated.id}.md", _saga_to_frontmatter(updated))
+    store.write(f"memory/sagas/{updated.id}.md", _saga_to_frontmatter(updated))
 
     # Update index entry
     index = _load_saga_index(store)
@@ -421,7 +421,7 @@ def read_chronicle(
     drift_only:
         If True, only return entries with ``verdict == Verdict.DRIFT``.
     """
-    paths = store.list("journal")
+    paths = store.list("memory/journal")
     entries: list[JournalEntry] = []
 
     for path in sorted(paths):

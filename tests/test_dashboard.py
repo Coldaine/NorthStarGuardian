@@ -357,7 +357,7 @@ class TestRenderDashboard:
         # Seed saga index
         sagas = [_make_saga()]
         store.write_json(
-            "sagas/_index.json",
+            "memory/sagas/_index.json",
             {
                 "sagas": [
                     {
@@ -377,7 +377,7 @@ class TestRenderDashboard:
         # Seed journal entries
         for entry in _make_journal_entries():
             date_str = entry.timestamp.strftime("%Y-%m-%d")
-            path = f"journal/{date_str}-pr-{entry.pr_number}.md"
+            path = f"memory/journal/{date_str}-pr-{entry.pr_number}.md"
             ts_str = entry.timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
             store.write(
                 path,
@@ -398,7 +398,7 @@ class TestRenderDashboard:
         # Seed drift ledger
         drift = _make_drift_events()
         store.write_json(
-            "drift-ledger.json",
+            "memory/drift-ledger.json",
             {
                 "events": [
                     {
@@ -477,7 +477,7 @@ class TestRenderDashboard:
         store = self._make_store_with_data()
         north_star = _make_north_star()
         render_dashboard(store, north_star)
-        assert store.exists("dashboard.html")
+        assert store.exists("memory/dashboard.html")
 
     def test_mermaid_directives_embedded(self) -> None:
         store = self._make_store_with_data()

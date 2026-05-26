@@ -14,7 +14,7 @@ Verdict options: KEEP / REPLACE / CUT / MERGE.
 
 | Tool(s) | Category | Why it is grounded | Verdict |
 |---|---|---|---|
-| `read_memory`, `write_memory`, `list_memory` | Memory I/O | The orphan branch cannot function without read/write | |
+| `read_memory`, `write_memory`, `list_memory` | Memory I/O | Repo-native `.github/guardian/` state needs a small read/write/list boundary | |
 | `read_north_star`, `initialize_north_star` | North Star | You asked for tenets and a guided setup command | |
 | `analyze_diff`, `evaluate_alignment`, `assess_intent` | Analysis | Core to checking a PR against the North Star | |
 | `write_journal_entry`, `read_chronicle` | Chronicle | You asked for a journal and a way to read project history | |

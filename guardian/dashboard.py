@@ -9,7 +9,7 @@ Implements the five Visualization Tools from spec §7.4:
 
 All generate_* functions return raw Mermaid source strings with no HTML
 wrapping. render_dashboard embeds them into dashboard.html.j2 and writes the
-result to the orphan branch via store.write().
+result to ``memory/dashboard.html`` via store.write().
 """
 
 from __future__ import annotations
@@ -293,7 +293,7 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
 
     Reads all chronicle data from *store*, generates each Mermaid chart,
     embeds everything into ``dashboard.html.j2``, writes the result to
-    ``dashboard.html`` on the orphan branch, and returns the HTML string.
+    ``memory/dashboard.html``, and returns the HTML string.
     """
     journal = read_chronicle(store)
     drift_events = _load_drift_events(store)
@@ -319,7 +319,7 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
         generated_at=generated_at,
     )
 
-    store.write("dashboard.html", html)
+    store.write("memory/dashboard.html", html)
     return html
 
 
@@ -345,11 +345,11 @@ def _load_all_sagas(store: MemoryStore) -> list[Saga]:
 
 
 def _load_drift_events(store: MemoryStore) -> list[DriftEvent]:
-    """Load drift events from drift-ledger.json, returning [] if absent."""
-    if not store.exists("drift-ledger.json"):
+    """Load drift events from memory/drift-ledger.json, returning [] if absent."""
+    if not store.exists("memory/drift-ledger.json"):
         return []
     try:
-        raw = store.read_json("drift-ledger.json")
+        raw = store.read_json("memory/drift-ledger.json")
         events: list[DriftEvent] = []
         for item in raw.get("events", []):
             events.append(DriftEvent(**item))

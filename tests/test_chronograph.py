@@ -126,6 +126,37 @@ def test_apply_plan_rejects_tampered_backup_path(tmp_path: Path) -> None:
     assert not (tmp_path / "outside.bak").exists()
 
 
+def test_apply_plan_rejects_tampered_target_existed(tmp_path: Path) -> None:
+    target = tmp_path / ".codex" / "AGENTS.md"
+    target.parent.mkdir()
+    before = "Always commit when feasible.\n"
+    target.write_text(before, encoding="utf-8")
+    action = StewardshipAction(
+        id="repair-missing-rtk",
+        action_class=ActionClass.REPAIR,
+        target_path=str(target),
+        before=before,
+        after=before + "@C:\\Users\\pmacl\\.codex\\RTK.md\n",
+        reason="The diff showed AGENTS.md missing the durable RTK include.",
+        confidence=0.96,
+        metadata={"operation": "add_missing_include", "include": "@C:\\Users\\pmacl\\.codex\\RTK.md"},
+    )
+    policy = ChronographSafetyPolicy.for_repo(tmp_path)
+    plan = build_apply_plan([action], policy=policy, now=NOW)
+    tampered = plan[0].model_copy(
+        update={
+            "target_existed": False,
+            "rollback_command": f"Remove-Item -LiteralPath '{target.resolve()}' -Force",
+        }
+    )
+
+    results = apply_plan([tampered], policy=policy, actions=[action], now=NOW)
+
+    assert not results[0].applied
+    assert results[0].skipped_reason == "plan does not match source action"
+    assert target.read_text(encoding="utf-8") == before
+
+
 def test_apply_plan_skips_when_live_target_changed_since_planning(tmp_path: Path) -> None:
     target = tmp_path / ".codex" / "AGENTS.md"
     target.parent.mkdir()
@@ -267,6 +298,31 @@ def test_only_missing_rtk_include_operation_auto_applies(tmp_path: Path) -> None
         reason="Known-safe settings normalization.",
         confidence=0.99,
         metadata={"operation": "normalize_known_safe_setting"},
+    )
+
+    plan = build_apply_plan(
+        [action],
+        policy=ChronographSafetyPolicy.for_repo(tmp_path),
+        now=NOW,
+    )
+
+    assert not plan[0].auto_apply
+
+
+def test_missing_include_does_not_auto_apply_to_settings_json(tmp_path: Path) -> None:
+    target = tmp_path / ".codex" / "settings.json"
+    target.parent.mkdir()
+    before = "{}\n"
+    target.write_text(before, encoding="utf-8")
+    action = StewardshipAction(
+        id="bad-settings-include",
+        action_class=ActionClass.REPAIR,
+        target_path=str(target),
+        before=before,
+        after=before + "@C:\\Users\\pmacl\\.codex\\RTK.md\n",
+        reason="A setting file cannot safely accept markdown include syntax.",
+        confidence=0.96,
+        metadata={"operation": "add_missing_include", "include": "@C:\\Users\\pmacl\\.codex\\RTK.md"},
     )
 
     plan = build_apply_plan(

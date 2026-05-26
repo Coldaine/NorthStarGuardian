@@ -136,13 +136,15 @@ def north_star() -> NorthStar:
 
 
 def _make_client(response_text: str) -> MagicMock:
-    """Return a mock Anthropic client whose messages.create returns *response_text*."""
+    """Return a mock OpenAI client whose chat.completions.create returns *response_text*."""
     client = MagicMock()
     content_block = MagicMock()
-    content_block.text = response_text
+    content_block.content = response_text
+    choice = MagicMock()
+    choice.message = content_block
     response = MagicMock()
-    response.content = [content_block]
-    client.messages.create.return_value = response
+    response.choices = [choice]
+    client.chat.completions.create.return_value = response
     return client
 
 
@@ -351,7 +353,7 @@ class TestEvaluateAlignment:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = _make_client(self._valid_response(north_star))
         evaluate_alignment(diff, north_star, client=client, model="test")
-        call_args = client.messages.create.call_args
+        call_args = client.chat.completions.create.call_args
         # The North Star identity statement must appear in the prompt
         prompt_text = str(call_args)
         assert north_star.identity_statement in prompt_text
@@ -454,7 +456,7 @@ class TestDetectAntiPatterns:
         client = MagicMock()
         result = detect_anti_patterns(diff, empty_north_star, client=client, model="test")
         assert result == []
-        client.messages.create.assert_not_called()
+        client.chat.completions.create.assert_not_called()
 
     def test_returns_matches(
         self, north_star: NorthStar, simple_pr_meta: dict[str, Any]
@@ -484,7 +486,7 @@ class TestDetectAntiPatterns:
         diff = analyze_diff(SIMPLE_DIFF, simple_pr_meta)
         client = _make_client("[]")
         detect_anti_patterns(diff, north_star, client=client, model="test")
-        call_args = client.messages.create.call_args
+        call_args = client.chat.completions.create.call_args
         prompt_text = str(call_args)
         assert "AP1" in prompt_text
         assert "AP2" in prompt_text
@@ -602,19 +604,17 @@ class TestRunInterview:
         chronicle_resp = "PR #42 added a new analysis step. It aligns with the declared architecture."
 
         client = MagicMock()
-        content_blocks = []
+        responses = []
         for text in [intent_resp, alignment_resp, ap_resp, chronicle_resp]:
             block = MagicMock()
-            block.text = text
-            content_blocks.append(block)
-
-        responses = []
-        for block in content_blocks:
+            block.content = text
+            choice = MagicMock()
+            choice.message = block
             resp = MagicMock()
-            resp.content = [block]
+            resp.choices = [choice]
             responses.append(resp)
 
-        client.messages.create.side_effect = responses
+        client.chat.completions.create.side_effect = responses
         return client
 
     def test_run_interview_returns_report(
@@ -650,21 +650,17 @@ class TestRunInterview:
         chronicle_resp = "Drift detected."
 
         client = MagicMock()
-        for text in [intent_resp, alignment_resp, ap_resp, chronicle_resp]:
-            block = MagicMock()
-            block.text = text
-            resp = MagicMock()
-            resp.content = [block]
-
         responses = []
         for text in [intent_resp, alignment_resp, ap_resp, chronicle_resp]:
             block = MagicMock()
-            block.text = text
+            block.content = text
+            choice = MagicMock()
+            choice.message = block
             resp = MagicMock()
-            resp.content = [block]
+            resp.choices = [choice]
             responses.append(resp)
 
-        client.messages.create.side_effect = responses
+        client.chat.completions.create.side_effect = responses
         report = run_interview(diff, north_star, client=client, model="test")
         assert report.overall_verdict == Verdict.DRIFT
 
@@ -687,13 +683,15 @@ class TestRunInterview:
         responses = []
         for text in [intent_resp, alignment_resp, ap_resp, chronicle_resp]:
             block = MagicMock()
-            block.text = text
+            block.content = text
+            choice = MagicMock()
+            choice.message = block
             resp = MagicMock()
-            resp.content = [block]
+            resp.choices = [choice]
             responses.append(resp)
 
         client = MagicMock()
-        client.messages.create.side_effect = responses
+        client.chat.completions.create.side_effect = responses
         report = run_interview(diff, north_star, client=client, model="test")
         assert report.overall_verdict == Verdict.AMBIGUOUS
 
@@ -705,4 +703,4 @@ class TestRunInterview:
         run_interview(diff, north_star, client=client, model="test",
                       pr_meta=simple_pr_meta)
         # 1 assess_intent + 1 evaluate_alignment + 1 detect_anti_patterns + 1 chronicle
-        assert client.messages.create.call_count == 4
+        assert client.chat.completions.create.call_count == 4

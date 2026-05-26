@@ -251,8 +251,8 @@ class GuardianConfig(BaseModel):
 
     north_star: NorthStarConfig = Field(default_factory=NorthStarConfig)
     linear: LinearConfig = Field(default_factory=LinearConfig)
-    anthropic_model_analysis: str = "claude-sonnet-4-6"
-    anthropic_model_initialization: str = "claude-opus-4-7"
+    openai_model_analysis: str = "gpt-5"
+    openai_model_initialization: str = "gpt-5"
     enable_blocking_escalation: bool = False
     """Whether expired debt timers escalate to blocking future PRs.
 

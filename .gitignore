@@ -23,3 +23,5 @@ htmlcov/
 .omc/state/
 .omc/logs/
 .omc/sessions/
+
+.omc/project-memory.json

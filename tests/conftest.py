@@ -59,7 +59,7 @@ class FakeLLMClient:
 class FakeStore:
     """In-memory stand-in for MemoryStore; no git, no filesystem side-effects.
 
-    Behaves like MemoryStore but stores files in a plain dict so constitution
+    Behaves like MemoryStore but stores files in a plain dict so north_star
     tests run fully offline without spinning up a git repository.
     """
 

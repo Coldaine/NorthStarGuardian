@@ -2,7 +2,7 @@
 
 Implements:
     analyze_diff        — pure Python, no LLM; parses unified diff via unidiff
-    evaluate_alignment  — LLM; per-principle verdict against the Constitution
+    evaluate_alignment  — LLM; per-principle verdict against the North Star
     detect_anti_patterns — LLM; matches declared anti-patterns to diff locations
     assess_intent       — LLM; infers PR goal, parses [VARIANCE: ...] tags
     run_interview       — orchestrates the above into a full InterviewReport
@@ -21,11 +21,11 @@ from jinja2 import Environment, FileSystemLoader
 
 from guardian.models import (
     AntiPatternMatch,
-    Constitution,
     DiffAnalysis,
     FileChange,
     IntentSummary,
     InterviewReport,
+    NorthStar,
     PrincipleEvaluation,
     VarianceTag,
     Verdict,
@@ -57,30 +57,6 @@ _jinja_env = Environment(
 
 def _render(template_name: str, **ctx: Any) -> str:
     return _jinja_env.get_template(template_name).render(**ctx)
-
-
-# ---------------------------------------------------------------------------
-# Prompt-building helpers  (pure functions, no LLM call)
-# ---------------------------------------------------------------------------
-
-
-def build_evaluate_alignment_prompt(diff: DiffAnalysis, constitution: Constitution) -> str:
-    """Build the prompt for evaluate_alignment (no LLM call)."""
-    return _render("evaluate_alignment.md.j2", constitution=constitution, diff=diff)
-
-
-def build_detect_anti_patterns_prompt(diff: DiffAnalysis, constitution: Constitution) -> str:
-    """Build the prompt for detect_anti_patterns (no LLM call)."""
-    return _render("detect_anti_patterns.md.j2", constitution=constitution, diff=diff)
-
-
-def build_assess_intent_prompt(
-    pr_meta: dict[str, Any],
-    diff: DiffAnalysis,
-    constitution: Constitution,
-) -> str:
-    """Build the prompt for assess_intent (no LLM call)."""
-    return _render("assess_intent.md.j2", constitution=constitution, pr_meta=pr_meta, diff=diff)
 
 
 # ---------------------------------------------------------------------------
@@ -255,13 +231,18 @@ def _call_llm(
     user: str,
     max_tokens: int = 4096,
 ) -> str:
-    """Call the configured LLM client and return response text."""
-    return client.generate(
-        system=system,
-        user=user,
+    """Call client.messages.create and return the first text block content."""
+    response = client.messages.create(
         model=model,
         max_tokens=max_tokens,
+        system=system,
+        messages=[{"role": "user", "content": user}],
     )
+    # Extract text from first content block
+    for block in response.content:
+        if hasattr(block, "text"):
+            return block.text
+    raise LLMOutputError("LLM response contained no text content block")
 
 
 def _parse_json_response(raw: str, context: str) -> Any:
@@ -289,12 +270,12 @@ def _parse_json_response(raw: str, context: str) -> Any:
 
 def evaluate_alignment(
     diff: DiffAnalysis,
-    constitution: Constitution,
+    north_star: NorthStar,
     *,
     client: Any,
     model: str,
 ) -> list[PrincipleEvaluation]:
-    """Evaluate the diff against each principle in the Constitution.
+    """Evaluate the diff against each principle in the North Star.
 
     Makes a single LLM call. Irrelevant principles are returned with
     ``relevant=False`` and no verdict so the report stays brief.
@@ -303,10 +284,10 @@ def evaluate_alignment(
     ----------
     diff:
         Structural analysis produced by :func:`analyze_diff`.
-    constitution:
-        The project's Constitution document.
+    north_star:
+        The project's North Star document.
     client:
-        An object implementing the Guardian ``generate`` LLM interface.
+        An ``anthropic.Anthropic`` (or compatible) client instance.
     model:
         Model identifier string.
 
@@ -320,7 +301,11 @@ def evaluate_alignment(
     LLMOutputError
         If the LLM response cannot be parsed or does not match the schema.
     """
-    prompt = build_evaluate_alignment_prompt(diff, constitution)
+    prompt = _render(
+        "evaluate_alignment.md.j2",
+        north_star=north_star,
+        diff=diff,
+    )
 
     raw = _call_llm(
         client,
@@ -339,7 +324,7 @@ def evaluate_alignment(
         )
 
     evaluations: list[PrincipleEvaluation] = []
-    principle_ids = {p.id for p in constitution.principles}
+    principle_ids = {p.id for p in north_star.principles}
 
     for item in data:
         if not isinstance(item, dict):
@@ -374,7 +359,7 @@ def evaluate_alignment(
 
     # Ensure every principle has an entry (guard against LLM omissions)
     returned_ids = {e.principle_id for e in evaluations}
-    for principle in sorted(constitution.principles, key=lambda p: p.rank):
+    for principle in sorted(north_star.principles, key=lambda p: p.rank):
         if principle.id not in returned_ids:
             evaluations.append(
                 PrincipleEvaluation(
@@ -386,8 +371,8 @@ def evaluate_alignment(
                 )
             )
 
-    # Sort by Constitution rank order
-    rank_map = {p.id: p.rank for p in constitution.principles}
+    # Sort by North Star rank order
+    rank_map = {p.id: p.rank for p in north_star.principles}
     evaluations.sort(key=lambda e: rank_map.get(e.principle_id, 999))
 
     return evaluations
@@ -400,12 +385,12 @@ def evaluate_alignment(
 
 def detect_anti_patterns(
     diff: DiffAnalysis,
-    constitution: Constitution,
+    north_star: NorthStar,
     *,
     client: Any,
     model: str,
 ) -> list[AntiPatternMatch]:
-    """Check the diff against the Constitution's anti-patterns registry.
+    """Check the diff against the North Star's anti-patterns registry.
 
     Makes a single LLM call.  Returns an empty list if no anti-patterns are
     registered or none match.
@@ -415,10 +400,14 @@ def detect_anti_patterns(
     LLMOutputError
         If the LLM response cannot be parsed.
     """
-    if not constitution.anti_patterns:
+    if not north_star.anti_patterns:
         return []
 
-    prompt = build_detect_anti_patterns_prompt(diff, constitution)
+    prompt = _render(
+        "detect_anti_patterns.md.j2",
+        north_star=north_star,
+        diff=diff,
+    )
 
     raw = _call_llm(
         client,
@@ -436,7 +425,7 @@ def detect_anti_patterns(
             f"detect_anti_patterns expected a JSON array, got {type(data).__name__}"
         )
 
-    pattern_ids = {ap.id for ap in constitution.anti_patterns}
+    pattern_ids = {ap.id for ap in north_star.anti_patterns}
     matches: list[AntiPatternMatch] = []
 
     for item in data:
@@ -471,7 +460,6 @@ def assess_intent(
     *,
     client: Any,
     model: str,
-    constitution: Constitution | None = None,
 ) -> IntentSummary:
     """Infer the developer's goal from PR metadata via a single LLM call.
 
@@ -485,9 +473,6 @@ def assess_intent(
         ``commit_messages`` (list[str]), ``author``, ``number``.
     diff:
         DiffAnalysis for context injected into the prompt.
-    constitution:
-        Optional Constitution to inject into the prompt.  When omitted a
-        minimal placeholder is used so the prompt stays well-formed.
 
     Returns
     -------
@@ -504,8 +489,12 @@ def assess_intent(
     body_text = pr_meta.get("body") or ""
     declared_variances = _parse_variance_tags(body_text)
 
-    effective_constitution = constitution or _DUMMY_CONSTITUTION_FOR_INTENT
-    prompt = build_assess_intent_prompt(pr_meta, diff, effective_constitution)
+    prompt = _render(
+        "assess_intent.md.j2",
+        north_star=_DUMMY_NORTH_STAR_FOR_INTENT,  # placeholder; real one passed by run_interview
+        pr_meta=pr_meta,
+        diff=diff,
+    )
 
     raw = _call_llm(
         client,
@@ -537,10 +526,61 @@ def assess_intent(
     )
 
 
-# Minimal stub constitution used when assess_intent is called standalone
-# (without a real constitution).  The prompt still renders cleanly.
-_DUMMY_CONSTITUTION_FOR_INTENT = type(
-    "_DummyConstitution",
+def assess_intent_with_north_star(
+    pr_meta: dict[str, Any],
+    diff: DiffAnalysis,
+    north_star: NorthStar,
+    *,
+    client: Any,
+    model: str,
+) -> IntentSummary:
+    """Variant of :func:`assess_intent` that injects the real North Star into
+    the prompt.  Called by :func:`run_interview`; public callers may use either.
+    """
+    body_text = pr_meta.get("body") or ""
+    declared_variances = _parse_variance_tags(body_text)
+
+    prompt = _render(
+        "assess_intent.md.j2",
+        north_star=north_star,
+        pr_meta=pr_meta,
+        diff=diff,
+    )
+
+    raw = _call_llm(
+        client,
+        model=model,
+        system=(
+            "You are the Repository Guardian. Follow the instructions exactly. "
+            "Return only valid JSON with no preamble."
+        ),
+        user=prompt,
+        max_tokens=1024,
+    )
+
+    data = _parse_json_response(raw, "assess_intent")
+    if not isinstance(data, dict):
+        raise LLMOutputError(
+            f"assess_intent expected a JSON object, got {type(data).__name__}"
+        )
+
+    one_line = str(data.get("one_line", ""))
+    paragraph = str(data.get("paragraph", ""))
+
+    if not one_line:
+        raise LLMOutputError("assess_intent: LLM returned empty 'one_line' field")
+
+    return IntentSummary(
+        one_line=one_line,
+        paragraph=paragraph,
+        declared_variances=declared_variances,
+    )
+
+
+# Minimal stub North Star used when assess_intent is called standalone
+# (without a real north_star).  The prompt still renders cleanly.
+_DUMMY_NORTH_STAR_FOR_INTENT = type(
+    "_DummyNorthStar",
     (),
     {
         "project_name": "",
@@ -577,7 +617,7 @@ def _parse_variance_tags(text: str) -> list[VarianceTag]:
         # Build justification: strip principle id from front, strip days clause
         justification = body
         if princ_match:
-            justification = body[princ_match.end():].lstrip(" —-–:").strip()
+            justification = re.sub(r"^[\s\u2014\u2013:-]+", "", body[princ_match.end():]).strip()
         if days_match:
             # Remove the "N days" fragment from the justification
             justification = justification[: days_match.start()].rstrip(" ,;").strip()
@@ -602,7 +642,7 @@ def _parse_variance_tags(text: str) -> list[VarianceTag]:
 
 def run_interview(
     diff: DiffAnalysis,
-    constitution: Constitution,
+    north_star: NorthStar,
     *,
     client: Any,
     model: str,
@@ -612,7 +652,7 @@ def run_interview(
 
     Orchestration order:
     1. assess_intent (PR title/body/commits → IntentSummary)
-    2. evaluate_alignment (diff + Constitution → per-principle verdicts)
+    2. evaluate_alignment (diff + North Star → per-principle verdicts)
     3. detect_anti_patterns (diff + anti-patterns registry → matches)
     4. One more LLM call to draft the chronicle paragraph.
 
@@ -622,8 +662,8 @@ def run_interview(
     ----------
     diff:
         Structural analysis produced by :func:`analyze_diff`.
-    constitution:
-        The project's Constitution.
+    north_star:
+        The project's North Star.
     client:
         Anthropic client instance.
     model:
@@ -648,19 +688,19 @@ def run_interview(
     }
 
     # Step 1 — intent
-    intent = assess_intent(
+    intent = assess_intent_with_north_star(
         _merged_meta,
         diff,
+        north_star,
         client=client,
         model=model,
-        constitution=constitution,
     )
 
     # Step 2 — alignment
-    evaluations = evaluate_alignment(diff, constitution, client=client, model=model)
+    evaluations = evaluate_alignment(diff, north_star, client=client, model=model)
 
     # Step 3 — anti-patterns
-    ap_matches = detect_anti_patterns(diff, constitution, client=client, model=model)
+    ap_matches = detect_anti_patterns(diff, north_star, client=client, model=model)
 
     # Step 4 — overall verdict
     overall_verdict = _aggregate_verdict(evaluations)
@@ -668,7 +708,7 @@ def run_interview(
     # Step 5 — chronicle paragraph via one more LLM call
     chronicle_paragraph = _draft_chronicle(
         diff=diff,
-        constitution=constitution,
+        north_star=north_star,
         intent=intent,
         evaluations=evaluations,
         overall_verdict=overall_verdict,
@@ -707,7 +747,7 @@ def _aggregate_verdict(evaluations: list[PrincipleEvaluation]) -> Verdict:
 def _draft_chronicle(
     *,
     diff: DiffAnalysis,
-    constitution: Constitution,
+    north_star: NorthStar,
     intent: IntentSummary,
     evaluations: list[PrincipleEvaluation],
     overall_verdict: Verdict,
@@ -727,7 +767,7 @@ def _draft_chronicle(
         "Do not praise or moralize. No JSON — return plain prose only."
     )
     user = (
-        f"Project: {constitution.project_name}\n"
+        f"Project: {north_star.project_name}\n"
         f"PR #{diff.pr_number}: {diff.pr_title}\n"
         f"Author: {diff.author}\n"
         f"Intent: {intent.paragraph}\n"

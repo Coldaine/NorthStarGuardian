@@ -14,9 +14,9 @@ Verdict options: KEEP / REPLACE / CUT / MERGE.
 
 | Tool(s) | Category | Why it is grounded | Verdict |
 |---|---|---|---|
-| `read_memory`, `write_memory`, `list_memory` | Memory I/O | The orphan branch cannot function without read/write | |
-| `read_constitution`, `initialize_constitution` | Constitutional | You asked for tenets and a guided setup interview | |
-| `analyze_diff`, `evaluate_alignment`, `assess_intent` | Analysis | Core to checking a PR against the Constitution | |
+| `read_memory`, `write_memory`, `list_memory` | Memory I/O | Repo-native `.github/guardian/` state needs a small read/write/list boundary | |
+| `read_north_star`, `initialize_north_star` | North Star | You asked for tenets and a guided setup command | |
+| `analyze_diff`, `evaluate_alignment`, `assess_intent` | Analysis | Core to checking a PR against the North Star | |
 | `write_journal_entry`, `read_chronicle` | Chronicle | You asked for a journal and a way to read project history | |
 | `log_drift` | Governance | Recording drift is the core observational act | |
 
@@ -24,7 +24,7 @@ Verdict options: KEEP / REPLACE / CUT / MERGE.
 
 | Tool(s) | Category | The concern | Verdict |
 |---|---|---|---|
-| `amend_constitution` | Constitutional | Should be an agent-side maintenance primitive for rare North Star updates, not a human slash command | |
+| `amend_north_star` | North Star | May just be a behavior of the `/amend` command, not a standalone tool | |
 | `detect_anti_patterns` | Analysis | Likely a sub-function of `evaluate_alignment`, not separate | |
 
 ### Assistant-invented — flagged for your decision
@@ -32,7 +32,7 @@ Verdict options: KEEP / REPLACE / CUT / MERGE.
 | Tool(s) | Category | Honest read | Verdict |
 |---|---|---|---|
 | `assign_saga`, `update_saga` | Chronicle | "Saga" is my term. The idea of grouping related PRs may be worth keeping, but the name and the two-tool split are mine. Invented but harmless | |
-| `grant_variance`, `check_debt_timers`, `escalate_debt` | Governance | The variance and debt-timer machinery is entirely mine. Any merge block directly contradicts the North Star anti-goal of never being an authority, so escalation must stay advisory and memory-only unless the owner explicitly changes that boundary | |
+| `grant_variance`, `check_debt_timers`, `escalate_debt` | Governance | The variance and debt-timer machinery is entirely mine. `escalate_debt` can end in a merge block, which directly contradicts the North Star anti-goal of never being an authority. This is the strongest candidate for replacement | |
 
 **My recommendation, not a decision:** the variance and debt-timer apparatus is the most over-built and the most off-North-Star piece in the spec. It deserves either a much lighter replacement or a cut. The saga tools are invented but benign. Everything else is grounded.
 

@@ -25,12 +25,12 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
-# Constitution
+# North Star
 # ---------------------------------------------------------------------------
 
 
 class Principle(BaseModel):
-    """A single ranked tenet in the Constitution."""
+    """A single ranked tenet in the North Star."""
 
     id: str
     rank: int
@@ -48,7 +48,7 @@ class AntiPattern(BaseModel):
     detect: str | None = None  # optional grep/AST hint
 
 
-class Constitution(BaseModel):
+class NorthStar(BaseModel):
     """The project's identity document, version-pinned for amendment tracking."""
 
     version: int = 1
@@ -62,7 +62,7 @@ class Constitution(BaseModel):
 
 
 class Amendment(BaseModel):
-    """Append-only record of constitutional changes."""
+    """Append-only record of North Star changes."""
 
     timestamp: datetime
     actor: str
@@ -228,20 +228,38 @@ class DebtTimer(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class GuardianConfig(BaseModel):
-    """Runtime configuration stored at `meta/guardian-config.json`."""
+class NorthStarConfig(BaseModel):
+    """North Star source configuration."""
 
-    memory_branch: str = "guardian-memory"
+    source: Literal["repo", "linear"] = "repo"
+    repo_path: str = "docs/northstar.md"
+    active_copy_path: str = ".github/guardian/northstar.md"
+
+
+class LinearConfig(BaseModel):
+    """Linear integration configuration."""
+
+    document_id: str | None = None
+    workspace_url: str | None = None
+    team_id: str | None = None
+    project_id: str | None = None
+    initiative_id: str | None = None
+
+
+class GuardianConfig(BaseModel):
+    """Runtime configuration stored at `.github/guardian/guardian-config.json`."""
+
+    north_star: NorthStarConfig = Field(default_factory=NorthStarConfig)
+    linear: LinearConfig = Field(default_factory=LinearConfig)
     anthropic_model_analysis: str = "claude-sonnet-4-6"
     anthropic_model_initialization: str = "claude-opus-4-7"
     enable_blocking_escalation: bool = False
-    """Whether expired debt timers may opt into blocking future PRs.
+    """Whether expired debt timers escalate to blocking future PRs.
 
     Default off to honor the North Star anti-goal "the Guardian must never
     become an authority." Operators can opt in per repo by flipping this in
-    `meta/guardian-config.json`, but the default path is advisory and
-    memory-only. The escalation machinery is still recorded even when this is
-    False — only the merge-block side effect is gated.
+    `.github/guardian/guardian-config.json`. The escalation machinery is still recorded
+    even when this is False — only the merge-block side effect is gated.
     """
 
     variance_default_days: int = 7

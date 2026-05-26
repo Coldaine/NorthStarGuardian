@@ -5,17 +5,16 @@ Implements the five Visualization Tools from spec §7.4:
   - generate_gantt     — Mermaid Gantt (saga timelines)
   - generate_gitgraph  — Mermaid GitGraph (branching + drift markers)
   - generate_quadrant  — Mermaid QuadrantChart (strategic value vs tech debt)
-  - generate_mindmap   — Mermaid Mindmap (changes → constitutional principles)
+  - generate_mindmap   — Mermaid Mindmap (changes → North Star principles)
 
 All generate_* functions return raw Mermaid source strings with no HTML
 wrapping. render_dashboard embeds them into dashboard.html.j2 and writes the
-result to the orphan branch via store.write().
+result to ``memory/dashboard.html`` via store.write().
 """
 
 from __future__ import annotations
 
 import re
-import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -24,21 +23,21 @@ from jinja2 import Environment, FileSystemLoader
 from guardian.chronicle import read_chronicle
 from guardian.memory import MemoryStore
 from guardian.models import (
-    Constitution,
     DriftEvent,
     InterviewReport,
     JournalEntry,
+    NorthStar,
     Saga,
     SagaStatus,
     Verdict,
 )
 
-_TEMPLATE_DIR = Path(__file__).parent / "templates"
+_TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
 def _jinja_env() -> Environment:
     return Environment(
-        loader=FileSystemLoader(str(_TEMPLATE_DIR)),
+        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
         autoescape=False,
         keep_trailing_newline=True,
     )
@@ -191,7 +190,7 @@ def generate_quadrant(
       ambiguous → middle    (0.50), middle   (0.50)
       drift     → low value (0.25), high debt (0.75)
 
-    Points are jittered with a small deterministic hash to avoid perfect overlap.
+    Points are jittered slightly by PR number mod to avoid perfect overlap.
     """
     lines: list[str] = [
         "quadrantChart",
@@ -216,7 +215,7 @@ def generate_quadrant(
     for entry in journal:
         debt_base, value_base = _VERDICT_SCORES[entry.verdict]
         # Small jitter from pr_number so overlapping verdicts spread out
-        jitter = ((entry.pr_number * 17 + 31) % 13) * 0.015 - 0.09
+        jitter = (entry.pr_number % 7) * 0.03 - 0.09
         debt = round(max(0.05, min(0.95, debt_base + jitter)), 2)
         value = round(max(0.05, min(0.95, value_base - jitter)), 2)
         label = f"PR#{entry.pr_number}"
@@ -230,13 +229,13 @@ def generate_quadrant(
 # ---------------------------------------------------------------------------
 
 def generate_mindmap(
-    constitution: Constitution,
+    north_star: NorthStar,
     recent_journal: list[JournalEntry],
 ) -> str:
     """Return a Mermaid Mindmap source string.
 
     Root: project name.
-    Level 1 branches: each constitutional principle.
+    Level 1 branches: each North Star principle.
     Level 2 leaves: recent PRs attached to the principle they most touched.
 
     PRs are attached to a principle when a PrincipleEvaluation with
@@ -244,21 +243,21 @@ def generate_mindmap(
     best-effort parse of the stored body_markdown table rows).
     Unattached PRs go to an "Unassigned" branch.
     """
-    root = _mermaid_safe(constitution.project_name)
+    root = _mermaid_safe(north_star.project_name)
     lines: list[str] = [
         "mindmap",
         f"  root(({root}))",
     ]
 
     # Map principle_id → list of PR labels
-    principle_prs: dict[str, list[str]] = {p.id: [] for p in constitution.principles}
+    principle_prs: dict[str, list[str]] = {p.id: [] for p in north_star.principles}
     unassigned: list[str] = []
 
     for entry in recent_journal:
         pr_label = f"PR #{entry.pr_number}"
         # Try to extract a principle_id from the markdown table stored in body
         assigned = False
-        for principle in constitution.principles:
+        for principle in north_star.principles:
             pattern = re.compile(
                 r"\|\s*`?" + re.escape(principle.id) + r"`?\s*\|",
                 re.IGNORECASE,
@@ -271,7 +270,7 @@ def generate_mindmap(
             unassigned.append(pr_label)
 
     # Emit principle branches
-    for principle in sorted(constitution.principles, key=lambda p: p.rank):
+    for principle in sorted(north_star.principles, key=lambda p: p.rank):
         p_label = _mermaid_safe(principle.text[:50])  # truncate long principle text
         lines.append(f"    {p_label}")
         for pr_label in principle_prs[principle.id]:
@@ -289,12 +288,12 @@ def generate_mindmap(
 # render_dashboard
 # ---------------------------------------------------------------------------
 
-def render_dashboard(store: MemoryStore, constitution: Constitution) -> str:
+def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
     """Orchestrate all chart generators and render the dashboard HTML.
 
     Reads all chronicle data from *store*, generates each Mermaid chart,
     embeds everything into ``dashboard.html.j2``, writes the result to
-    ``dashboard.html`` on the orphan branch, and returns the HTML string.
+    ``memory/dashboard.html``, and returns the HTML string.
     """
     journal = read_chronicle(store)
     drift_events = _load_drift_events(store)
@@ -303,16 +302,16 @@ def render_dashboard(store: MemoryStore, constitution: Constitution) -> str:
     gantt_src = generate_gantt(sagas)
     gitgraph_src = generate_gitgraph(drift_events, journal)
     quadrant_src = generate_quadrant(journal)
-    mindmap_src = generate_mindmap(constitution, journal)
+    mindmap_src = generate_mindmap(north_star, journal)
 
     generated_at = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
 
     env = _jinja_env()
     template = env.get_template("dashboard.html.j2")
     html = template.render(
-        project_name=constitution.project_name,
-        identity_statement=constitution.identity_statement,
-        principles=constitution.principles,
+        project_name=north_star.project_name,
+        identity_statement=north_star.identity_statement,
+        principles=north_star.principles,
         gantt_src=gantt_src,
         gitgraph_src=gitgraph_src,
         quadrant_src=quadrant_src,
@@ -320,7 +319,7 @@ def render_dashboard(store: MemoryStore, constitution: Constitution) -> str:
         generated_at=generated_at,
     )
 
-    store.write("dashboard.html", html)
+    store.write("memory/dashboard.html", html)
     return html
 
 
@@ -331,38 +330,29 @@ def render_dashboard(store: MemoryStore, constitution: Constitution) -> str:
 def _load_all_sagas(store: MemoryStore) -> list[Saga]:
     """Load all sagas from the saga index."""
     from guardian.chronicle import (  # local import to avoid circular
-        load_saga_index,
-        saga_from_index_entry,
+        _load_saga_index,
+        _saga_from_index_entry,
     )
 
-    index = load_saga_index(store)
+    index = _load_saga_index(store)
     sagas: list[Saga] = []
     for entry in index.get("sagas", []):
         try:
-            sagas.append(saga_from_index_entry(entry))
+            sagas.append(_saga_from_index_entry(entry))
         except (KeyError, ValueError):
             continue
     return sagas
 
 
 def _load_drift_events(store: MemoryStore) -> list[DriftEvent]:
-    """Load drift events from drift-ledger.json, returning [] if absent."""
-    if not store.exists("drift-ledger.json"):
+    """Load drift events from memory/drift-ledger.json, returning [] if absent."""
+    if not store.exists("memory/drift-ledger.json"):
         return []
     try:
-        raw = store.read_json("drift-ledger.json")
-        if raw is None:
-            return []
-        if isinstance(raw, dict):
-            raw_events = raw.get("events", [])
-        elif isinstance(raw, list):
-            raw_events = raw
-        else:
-            return []
+        raw = store.read_json("memory/drift-ledger.json")
         events: list[DriftEvent] = []
-        for item in raw_events:
+        for item in raw.get("events", []):
             events.append(DriftEvent(**item))
         return events
-    except (ValueError, KeyError, TypeError, AttributeError) as exc:
-        warnings.warn(f"drift-ledger.json is corrupt: {exc}", stacklevel=2)
+    except (ValueError, KeyError):
         return []

@@ -6,44 +6,24 @@ MemoryStore (tmp_path git repo + bare local remote) with a mocked LLM client.
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from guardian.analyze import analyze_diff, run_interview
 from guardian.chronicle import assign_saga, update_saga, write_journal_entry
-from guardian.constitution import initialize_constitution, write_constitution
 from guardian.dashboard import render_dashboard
 from guardian.memory import MemoryStore
-from tests.conftest import FakeLLMClient
+from guardian.north_star import initialize_north_star, write_north_star
 
 
-def _git(args: list[str], cwd: Path) -> str:
-    result = subprocess.run(
-        ["git", *args], cwd=str(cwd), check=True, capture_output=True, text=True,
-    )
-    return result.stdout.strip()
-
-
-def _make_repo_with_remote(tmp_path: Path) -> tuple[Path, Path]:
-    """Working repo wired to a local bare remote so commit_and_push succeeds."""
-    bare = tmp_path / "remote.git"
-    bare.mkdir()
-    _git(["init", "--bare", "-b", "main"], cwd=bare)
-
+def _make_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
-    _git(["init", "-b", "main"], cwd=repo)
-    _git(["config", "user.email", "test@example.com"], cwd=repo)
-    _git(["config", "user.name", "Test"], cwd=repo)
-    (repo / "README.md").write_text("# test repo\n")
-    _git(["add", "README.md"], cwd=repo)
-    _git(["commit", "-m", "initial commit"], cwd=repo)
-    _git(["remote", "add", "origin", str(bare)], cwd=repo)
-    _git(["push", "-u", "origin", "main"], cwd=repo)
-    return repo, bare
+    (repo / "README.md").write_text("# test repo\n", encoding="utf-8")
+    return repo
 
 
 # 2 context + 1 removed + 2 added → @@ -1,3 +1,4 @@
@@ -70,10 +50,17 @@ PR_META: dict[str, Any] = {
 }
 
 
+def _llm_response(text: str) -> MagicMock:
+    """Mock anthropic response whose .content[0].text == text."""
+    block = MagicMock()
+    block.text = text
+    resp = MagicMock()
+    resp.content = [block]
+    return resp
 
 
-def _build_fake_client(principle_ids: list[str], verdict: str = "aligned") -> FakeLLMClient:
-    """Fake LLM client driving the 5 LLM calls of run_interview + assign_saga.
+def _build_mock_client(principle_ids: list[str], verdict: str = "aligned") -> MagicMock:
+    """Mock anthropic client driving the 5 LLM calls of run_interview + assign_saga.
 
     `verdict` controls what evaluate_alignment returns for the (one) relevant
     principle: "aligned", "drift", or "ambiguous".
@@ -94,23 +81,25 @@ def _build_fake_client(principle_ids: list[str], verdict: str = "aligned") -> Fa
     ])
     chronicle_prose = f"PR #42 was assessed as {verdict}."
 
-    return FakeLLMClient(
-        intent_json,
-        alignment_json,
-        "[]",
-        chronicle_prose,
-        "CREATE: New Saga",
-    )
+    client = MagicMock()
+    client.messages.create.side_effect = [
+        _llm_response(intent_json),
+        _llm_response(alignment_json),
+        _llm_response("[]"),
+        _llm_response(chronicle_prose),
+        _llm_response("CREATE: New Saga"),
+    ]
+    return client
 
 
 @pytest.fixture()
 def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
-    """Real git repo with a bare remote and a seeded guardian-memory branch."""
-    repo, _bare = _make_repo_with_remote(tmp_path)
+    """Real filesystem-backed Guardian store seeded with an active North Star."""
+    repo = _make_repo(tmp_path)
     store = MemoryStore(repo)
     store.ensure_initialized()
 
-    constitution = initialize_constitution(
+    north_star = initialize_north_star(
         {
             "project_name": "TestProject",
             "identity_statement": (
@@ -125,7 +114,7 @@ def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
                 "Tests mock LLM calls; no real network access in CI.",
             ],
             "approved_architecture": (
-                "Python 3.11+, Pydantic v2 models, a Guardian LLMClient adapter, "
+                "Python 3.11+, Pydantic v2 models, Anthropic SDK for LLM calls, "
                 "Jinja2 for templating, unidiff for diff parsing."
             ),
             "anti_patterns": [
@@ -138,8 +127,7 @@ def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
         },
         actor="test-setup",
     )
-    write_constitution(store, constitution, rationale="Initial constitution for E2E test")
-    store.commit_and_push("chore: seed constitution for E2E test", push=True)
+    write_north_star(store, north_star, rationale="Initial North Star for E2E test")
 
     return repo, store
 
@@ -148,32 +136,32 @@ def repo_and_store(tmp_path: Path) -> tuple[Path, MemoryStore]:
 def test_full_pr_interview_cycle(
     repo_and_store: tuple[Path, MemoryStore], verdict: str,
 ) -> None:
-    from guardian.constitution import read_constitution
+    from guardian.north_star import read_north_star
 
     _repo, store = repo_and_store
     diff_analysis = analyze_diff(SAMPLE_DIFF, PR_META)
     assert diff_analysis.pr_number == 42
     assert len(diff_analysis.files) == 1
 
-    constitution = read_constitution(store)
-    principle_ids = [p.id for p in constitution.principles]
+    north_star = read_north_star(store)
+    principle_ids = [p.id for p in north_star.principles]
     assert len(principle_ids) == 5
 
-    client = _build_fake_client(principle_ids, verdict=verdict)
+    client = _build_mock_client(principle_ids, verdict=verdict)
 
     report = run_interview(
-        diff_analysis, constitution, client=client, model="claude-test-mock", pr_meta=PR_META,
+        diff_analysis, north_star, client=client, model="claude-test-mock", pr_meta=PR_META,
     )
     assert report.pr_number == 42
     assert report.overall_verdict.value == verdict
     assert report.chronicle_paragraph
     assert report.intent.one_line
-    assert client.call_count == 4
+    assert client.messages.create.call_count == 4
 
     saga = assign_saga(
         store, report.intent, existing_sagas=[], client=client, model="claude-test-mock",
     )
-    assert client.call_count == 5
+    assert client.messages.create.call_count == 5
     assert saga.id
     assert saga.name == "New Saga"
 
@@ -185,10 +173,10 @@ def test_full_pr_interview_cycle(
     assert entry.pr_number == 42
     assert entry.saga_id == saga.id
 
-    html = render_dashboard(store, constitution)
+    html = render_dashboard(store, north_star)
     assert html
 
-    journal_files = store.list("journal/")
+    journal_files = store.list("memory/journal/")
     assert journal_files, "no journal files materialised"
     raw_journal = store.read(journal_files[0])
     parts = raw_journal.split("---", 2)
@@ -202,12 +190,12 @@ def test_full_pr_interview_cycle(
         assert expected in fm, f"frontmatter missing {expected}: {fm}"
     assert int(fm["pr_number"]) == 42
 
-    assert store.exists("sagas/_index.json")
-    saga_index = store.read_json("sagas/_index.json")
+    assert store.exists("memory/sagas/_index.json")
+    saga_index = store.read_json("memory/sagas/_index.json")
     assert saga.id in [s["id"] for s in saga_index["sagas"]]
 
-    assert store.exists("dashboard.html")
-    dashboard_content = store.read("dashboard.html")
+    assert store.exists("memory/dashboard.html")
+    dashboard_content = store.read("memory/dashboard.html")
     assert "cdn.jsdelivr.net" in dashboard_content
     for directive in ("gantt", "gitGraph", "quadrantChart", "mindmap"):
         assert directive in dashboard_content, f"chart directive {directive!r} missing"

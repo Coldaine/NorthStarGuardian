@@ -1,12 +1,15 @@
 """Tests for guardian.chronicle.
 
 Uses a FakeStore that avoids any git subprocess calls.
-FakeLLMClient provides queued saga-assignment responses.
+The AnthropicClient is mocked for assign_saga tests.
 """
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from typing import Any
+from unittest.mock import MagicMock
 
 from guardian.chronicle import (
     assign_saga,
@@ -23,7 +26,40 @@ from guardian.models import (
     SagaStatus,
     Verdict,
 )
-from tests.conftest import FakeLLMClient, FakeStore
+
+# ---------------------------------------------------------------------------
+# FakeStore
+# ---------------------------------------------------------------------------
+
+
+class FakeStore:
+    """In-memory stand-in for MemoryStore — no git, no filesystem."""
+
+    def __init__(self) -> None:
+        self._files: dict[str, str] = {}
+    # MemoryStore interface
+    def read(self, path: str) -> str:
+        if path not in self._files:
+            raise FileNotFoundError(f"FakeStore: {path!r} not found")
+        return self._files[path]
+
+    def read_json(self, path: str) -> Any:
+        return json.loads(self.read(path))
+
+    def exists(self, path: str) -> bool:
+        return path in self._files
+
+    def write(self, path: str, content: str, message: str = "") -> None:
+        self._files[path] = content
+
+    def write_json(self, path: str, obj: Any, message: str = "") -> None:
+        self._files[path] = json.dumps(obj, indent=2, default=str)
+
+    def list(self, prefix: str = "") -> list[str]:
+        if prefix:
+            return sorted(k for k in self._files if k.startswith(prefix))
+        return sorted(self._files.keys())
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -104,7 +140,7 @@ class TestWriteJournalEntry:
 
         write_journal_entry(store, report, None)
 
-        expected_path = "journal/2026-02-05-pr-42.md"
+        expected_path = "memory/journal/2026-02-05-pr-42.md"
         assert store.exists(expected_path), f"Expected {expected_path!r} in store"
 
     def test_frontmatter_round_trips(self) -> None:
@@ -114,7 +150,7 @@ class TestWriteJournalEntry:
 
         write_journal_entry(store, report, saga)
 
-        raw = store.read("journal/2026-02-05-pr-7.md")
+        raw = store.read("memory/journal/2026-02-05-pr-7.md")
         # Split frontmatter
         parts = raw.split("---", 2)
         assert len(parts) == 3, "Expected YAML frontmatter delimiters"
@@ -130,7 +166,7 @@ class TestWriteJournalEntry:
         report = _make_report(pr_number=1)
         write_journal_entry(store, report, None)
 
-        raw = store.read("journal/2026-02-05-pr-1.md")
+        raw = store.read("memory/journal/2026-02-05-pr-1.md")
         assert "WebSocket layer" in raw
 
     def test_body_contains_principle_table(self) -> None:
@@ -138,7 +174,7 @@ class TestWriteJournalEntry:
         report = _make_report(pr_number=1)
         write_journal_entry(store, report, None)
 
-        raw = store.read("journal/2026-02-05-pr-1.md")
+        raw = store.read("memory/journal/2026-02-05-pr-1.md")
         assert "| `p1`" in raw
 
     def test_no_saga_uses_unassigned(self) -> None:
@@ -147,7 +183,7 @@ class TestWriteJournalEntry:
         entry = write_journal_entry(store, report, None)
 
         assert entry.saga_id is None
-        raw = store.read("journal/2026-02-05-pr-3.md")
+        raw = store.read("memory/journal/2026-02-05-pr-3.md")
         assert "saga_id: unassigned" in raw
 
     def test_suggestions_appear_in_body(self) -> None:
@@ -155,7 +191,7 @@ class TestWriteJournalEntry:
         report = _make_report(pr_number=5)
         write_journal_entry(store, report, None)
 
-        raw = store.read("journal/2026-02-05-pr-5.md")
+        raw = store.read("memory/journal/2026-02-05-pr-5.md")
         assert "Consider adding a docstring here." in raw
 
 
@@ -165,9 +201,15 @@ class TestWriteJournalEntry:
 
 
 class TestAssignSaga:
-    def _make_client(self, response_text: str) -> FakeLLMClient:
-        """Return a fake LLM client that returns *response_text*."""
-        return FakeLLMClient(response_text)
+    def _make_client(self, response_text: str) -> MagicMock:
+        """Return a mock Anthropic client that returns *response_text*."""
+        content_block = MagicMock()
+        content_block.text = response_text
+        message = MagicMock()
+        message.content = [content_block]
+        client = MagicMock()
+        client.messages.create.return_value = message
+        return client
 
     def test_match_existing_saga(self) -> None:
         store = FakeStore()
@@ -207,9 +249,9 @@ class TestAssignSaga:
 
         result = assign_saga(store, intent, [], client=client, model="claude-test")
 
-        saga_path = f"sagas/{result.id}.md"
+        saga_path = f"memory/sagas/{result.id}.md"
         assert store.exists(saga_path), f"Saga file not written: {saga_path}"
-        assert store.exists("sagas/_index.json"), "Index not updated"
+        assert store.exists("memory/sagas/_index.json"), "Index not updated"
 
     def test_index_updated_for_new_saga(self) -> None:
         store = FakeStore()
@@ -221,7 +263,7 @@ class TestAssignSaga:
 
         result = assign_saga(store, intent, [], client=client, model="claude-test")
 
-        index = store.read_json("sagas/_index.json")
+        index = store.read_json("memory/sagas/_index.json")
         ids = [entry["id"] for entry in index["sagas"]]
         assert result.id in ids
 
@@ -280,15 +322,15 @@ class TestUpdateSaga:
 
         update_saga(store, saga, pr_number=99)
 
-        assert store.exists("sagas/auth-overhaul.md")
-        raw = store.read("sagas/auth-overhaul.md")
+        assert store.exists("memory/sagas/auth-overhaul.md")
+        raw = store.read("memory/sagas/auth-overhaul.md")
         assert "99" in raw
 
     def test_index_updated(self) -> None:
         store = FakeStore()
         # Seed the index with the saga
         store.write_json(
-            "sagas/_index.json",
+            "memory/sagas/_index.json",
             {
                 "sagas": [
                     {
@@ -307,7 +349,7 @@ class TestUpdateSaga:
 
         update_saga(store, saga, pr_number=5)
 
-        index = store.read_json("sagas/_index.json")
+        index = store.read_json("memory/sagas/_index.json")
         entry = next(e for e in index["sagas"] if e["id"] == "auth-overhaul")
         assert 5 in entry["pr_numbers"]
 
@@ -317,8 +359,8 @@ class TestUpdateSaga:
 
         update_saga(store, saga, pr_number=7)
 
-        assert store.exists("sagas/_index.json")
-        index = store.read_json("sagas/_index.json")
+        assert store.exists("memory/sagas/_index.json")
+        index = store.read_json("memory/sagas/_index.json")
         ids = [e["id"] for e in index["sagas"]]
         assert "fresh-saga" in ids
 
@@ -332,7 +374,7 @@ def _seed_journal(store: FakeStore, entries: list[JournalEntry]) -> None:
     """Write pre-baked journal entries into the FakeStore."""
     for entry in entries:
         date_str = entry.timestamp.strftime("%Y-%m-%d")
-        path = f"journal/{date_str}-pr-{entry.pr_number}.md"
+        path = f"memory/journal/{date_str}-pr-{entry.pr_number}.md"
         ts_str = entry.timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
         content = "\n".join(
             [

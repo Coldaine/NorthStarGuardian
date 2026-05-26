@@ -1,0 +1,19 @@
+{
+  "north_star": {
+    "source": "repo",
+    "repo_path": "docs/northstar.md",
+    "active_copy_path": ".github/guardian/northstar.md"
+  },
+  "linear": {
+    "document_id": null,
+    "workspace_url": null,
+    "team_id": null,
+    "project_id": null,
+    "initiative_id": null
+  },
+  "anthropic_model_analysis": "claude-sonnet-4-6",
+  "anthropic_model_initialization": "claude-opus-4-7",
+  "enable_blocking_escalation": false,
+  "variance_default_days": 7,
+  "pages_url": null
+}

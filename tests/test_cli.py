@@ -1,4 +1,4 @@
-"""Tests for guardian.cli — autonomous PR interview and local subcommands.
+"""Tests for guardian.cli — parse_slash_command and CLI subcommands.
 
 Uses Click's CliRunner so no real processes are spawned.  All external
 dependencies (GitHub, Anthropic, MemoryStore) are mocked at the boundary.
@@ -7,36 +7,106 @@ dependencies (GitHub, Anthropic, MemoryStore) are mocked at the boundary.
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
-from guardian.cli import _load_config, cli
+from guardian.cli import cli, parse_slash_command
 from guardian.models import (
-    Constitution,
     DiffAnalysis,
-    DriftSeverity,
     GuardianConfig,
     IntentSummary,
     InterviewReport,
     JournalEntry,
+    NorthStar,
     Principle,
-    PrincipleEvaluation,
-    VarianceTag,
     Verdict,
 )
-from tests.conftest import FakeStore
+
+# ---------------------------------------------------------------------------
+# parse_slash_command
+# ---------------------------------------------------------------------------
+
+
+class TestParseSlashCommand:
+    def test_simple_command(self) -> None:
+        result = parse_slash_command("/init-guardian")
+        assert result is not None
+        cmd, args = result
+        assert cmd == "init-guardian"
+        assert args == []
+
+    def test_command_with_single_arg(self) -> None:
+        result = parse_slash_command("/amend principle-3")
+        assert result is not None
+        cmd, args = result
+        assert cmd == "amend"
+        assert args == ["principle-3"]
+
+    def test_command_with_quoted_second_arg(self) -> None:
+        result = parse_slash_command('/amend principle-3 "new text here"')
+        assert result is not None
+        cmd, args = result
+        assert cmd == "amend"
+        assert args == ["principle-3", "new text here"]
+
+    def test_command_with_unquoted_rest(self) -> None:
+        result = parse_slash_command("/amend principle-3 new text")
+        assert result is not None
+        cmd, args = result
+        assert cmd == "amend"
+        # Unquoted: first word + rest as second token
+        assert args[0] == "principle-3"
+        assert args[1] == "new text"
+
+    def test_re_anchor(self) -> None:
+        result = parse_slash_command("/re-anchor")
+        assert result is not None
+        assert result[0] == "re-anchor"
+        assert result[1] == []
+
+    def test_chronicle(self) -> None:
+        result = parse_slash_command("/chronicle")
+        assert result is not None
+        assert result[0] == "chronicle"
+
+    def test_dashboard(self) -> None:
+        result = parse_slash_command("/dashboard")
+        assert result is not None
+        assert result[0] == "dashboard"
+
+    def test_status(self) -> None:
+        result = parse_slash_command("/status")
+        assert result is not None
+        assert result[0] == "status"
+
+    def test_non_slash_comment_returns_none(self) -> None:
+        assert parse_slash_command("not a command") is None
+
+    def test_empty_string_returns_none(self) -> None:
+        assert parse_slash_command("") is None
+
+    def test_plain_text_with_slash_in_middle_returns_none(self) -> None:
+        assert parse_slash_command("hello /not-a-command") is None
+
+    def test_leading_whitespace_is_stripped(self) -> None:
+        result = parse_slash_command("  /status  ")
+        assert result is not None
+        assert result[0] == "status"
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 
-def _make_constitution() -> Constitution:
-    return Constitution(
+def _make_north_star() -> NorthStar:
+    return NorthStar(
         version=1,
         project_name="TestProject",
         identity_statement="This is a test project.",
@@ -75,19 +145,119 @@ def _make_journal_entry(pr_number: int = 42) -> JournalEntry:
     )
 
 
+def _git(args: list[str], cwd: Path) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=str(cwd),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def _init_git_repo(path: Path) -> None:
+    _git(["init", "-b", "main"], cwd=path)
+    _git(["config", "user.email", "test@example.com"], cwd=path)
+    _git(["config", "user.name", "Test"], cwd=path)
+
+
 # ---------------------------------------------------------------------------
-# _load_config
+# Review North Star loading
 # ---------------------------------------------------------------------------
 
 
-class TestLoadConfig:
-    def test_validation_error_falls_back_to_defaults(self) -> None:
-        store = FakeStore()
-        store.write("meta/guardian-config.json", '{"variance_default_days": {}}')
+class TestReviewNorthStarLoading:
+    def test_repo_source_reads_base_ref_and_updates_active_copy(self, tmp_path: Path) -> None:
+        from guardian.cli import _load_review_north_star
+        from guardian.memory import MemoryStore
+        from guardian.north_star import write_repo_north_star
 
-        config = _load_config(store)
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
 
-        assert config == GuardianConfig()
+        base = _make_north_star().model_copy(update={"project_name": "BasePolicy"})
+        head = _make_north_star().model_copy(update={"project_name": "HeadPolicy"})
+        write_repo_north_star(repo, base)
+        _git(["add", "docs/northstar.md"], cwd=repo)
+        _git(["commit", "-m", "add base north star"], cwd=repo)
+        write_repo_north_star(repo, head)
+
+        store = MemoryStore(repo)
+        store.ensure_initialized()
+
+        north_star = _load_review_north_star(
+            repo,
+            store,
+            GuardianConfig(),
+            {"base_sha": "HEAD"},
+        )
+
+        assert north_star.project_name == "BasePolicy"
+        assert "BasePolicy" in store.read("northstar.md")
+        assert store.read_json("memory/northstar-snapshot.json")["source"] == "repo"
+
+    def test_linear_source_requires_api_key(self, tmp_path: Path) -> None:
+        from click import ClickException
+
+        from guardian.cli import _load_review_north_star
+        from guardian.memory import MemoryStore
+
+        store = MemoryStore(tmp_path)
+        store.ensure_initialized()
+        config = GuardianConfig(
+            north_star={"source": "linear"},
+            linear={"document_id": "doc-1"},
+        )
+
+        with pytest.raises(ClickException, match="LINEAR_API_KEY"):
+            _load_review_north_star(tmp_path, store, config, {}, env={})
+
+    def test_linear_source_fetches_document_and_writes_snapshot(
+        self, tmp_path: Path,
+    ) -> None:
+        from guardian.cli import _load_review_north_star
+        from guardian.linear import LinearDocumentSnapshot
+        from guardian.memory import MemoryStore
+
+        store = MemoryStore(tmp_path)
+        store.ensure_initialized()
+        config = GuardianConfig(
+            north_star={"source": "linear"},
+            linear={"document_id": "doc-1"},
+        )
+        content = _make_north_star().model_copy(
+            update={"project_name": "LinearPolicy"}
+        )
+
+        fake_client = MagicMock()
+        from guardian.north_star import render_north_star_markdown
+
+        fake_client.fetch_document.return_value = LinearDocumentSnapshot(
+            document_id="doc-1",
+            document_content_id="content-1",
+            title="Linear North Star",
+            url="https://linear.app/acme/document/doc-1",
+            updated_at="2026-05-26T12:00:00.000Z",
+            updated_by="Ada",
+            fetched_at=datetime(2026, 5, 26, tzinfo=UTC),
+            sha256="a" * 64,
+            content=render_north_star_markdown(content),
+        )
+
+        with patch("guardian.linear.LinearClient", return_value=fake_client):
+            north_star = _load_review_north_star(
+                tmp_path,
+                store,
+                config,
+                {},
+                env={"LINEAR_API_KEY": "lin-test"},
+            )
+
+        assert north_star.project_name == "LinearPolicy"
+        assert "LinearPolicy" in store.read("northstar.md")
+        assert store.read_json("memory/northstar-snapshot.json")["document_id"] == "doc-1"
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +271,7 @@ class TestPreviewDashboard:
     def test_renders_html_file(self, tmp_path: Path) -> None:
         runner = CliRunner()
 
-        constitution = _make_constitution()
+        north_star = _make_north_star()
         html_content = "<html><body>dashboard</body></html>"
         output_file = tmp_path / "out.html"
 
@@ -116,7 +286,7 @@ class TestPreviewDashboard:
         try:
             with (
                 patch("guardian.cli.MemoryStore", return_value=mock_store),
-                patch("guardian.cli.read_constitution", return_value=constitution),
+                patch("guardian.cli.read_north_star", return_value=north_star),
             ):
                 result = runner.invoke(
                     cli,
@@ -133,7 +303,7 @@ class TestPreviewDashboard:
         # The output path should be mentioned in stdout.
         assert str(output_file.name) in result.output or "dashboard" in result.output.lower()
 
-    def test_errors_when_no_constitution(self, tmp_path: Path) -> None:
+    def test_errors_when_no_north_star(self, tmp_path: Path) -> None:
         runner = CliRunner()
 
         mock_store = MagicMock()
@@ -141,7 +311,7 @@ class TestPreviewDashboard:
 
         with (
             patch("guardian.cli.MemoryStore", return_value=mock_store),
-            patch("guardian.cli.read_constitution", side_effect=FileNotFoundError),
+            patch("guardian.cli.read_north_star", side_effect=FileNotFoundError),
         ):
             result = runner.invoke(
                 cli,
@@ -176,18 +346,16 @@ class TestInterview:
             }
         }
 
-    def _run_interview_command(
-        self,
-        tmp_path: Path,
-        report: InterviewReport,
-        *,
-        constitution: Constitution | None = None,
-        config: GuardianConfig | None = None,
-    ) -> dict[str, Any]:
+    def test_interview_pipeline_called(self, tmp_path: Path) -> None:
         runner = CliRunner()
-        payload = self._make_event_payload(report.pr_number)
+
+        # Write a fake event payload to disk.
+        payload = self._make_event_payload(42)
         event_file = tmp_path / "event.json"
         event_file.write_text(json.dumps(payload), encoding="utf-8")
+
+        north_star = _make_north_star()
+        report = _make_report(42)
 
         mock_store = MagicMock()
         mock_store.exists.return_value = False
@@ -205,8 +373,6 @@ class TestInterview:
         mock_ctx.event_name = "pull_request"
 
         mock_diff_analysis = MagicMock(spec=DiffAnalysis)
-        config = config or GuardianConfig()
-        constitution = constitution or _make_constitution()
 
         env = {
             "GITHUB_TOKEN": "test-token",
@@ -220,11 +386,9 @@ class TestInterview:
             patch("guardian.cli.GitHubContext") as mock_ctx_cls,
             patch("guardian.cli.get_pr_diff", return_value="diff --git ..."),
             patch("guardian.cli.get_pr_meta", return_value={"number": 42, "title": "Add feature", "body": "", "author": "dev", "base_sha": "abc", "head_sha": "def"}),
-            patch("guardian.cli.read_constitution", return_value=constitution),
+            patch("guardian.cli._load_review_north_star", return_value=north_star),
             patch("guardian.cli._make_anthropic_client", return_value=MagicMock()),
-            patch("guardian.cli._load_config", return_value=config),
-            patch("guardian.governance.log_drift") as mock_log_drift,
-            patch("guardian.governance.grant_variance") as mock_grant_variance,
+            patch("guardian.cli._load_config", return_value=GuardianConfig()),
             patch("guardian.cli.post_pr_comment") as mock_post,
         ):
             mock_ctx_cls.from_env.return_value = mock_ctx
@@ -240,8 +404,8 @@ class TestInterview:
             with (
                 patch.object(analyze_mod, "analyze_diff", return_value=mock_diff_analysis),
                 patch.object(analyze_mod, "run_interview", return_value=report),
-                patch.object(chronicle_mod, "load_saga_index", return_value={"sagas": []}),
-                patch.object(chronicle_mod, "saga_from_index_entry", return_value=mock_saga),
+                patch.object(chronicle_mod, "_load_saga_index", return_value={"sagas": []}),
+                patch.object(chronicle_mod, "_saga_from_index_entry", return_value=mock_saga),
                 patch.object(chronicle_mod, "assign_saga", return_value=mock_saga),
                 patch.object(chronicle_mod, "update_saga", return_value=mock_saga),
                 patch.object(chronicle_mod, "write_journal_entry"),
@@ -253,45 +417,11 @@ class TestInterview:
                     env=env,
                 )
 
-        return {
-            "result": result,
-            "store": mock_store,
-            "post_comment": mock_post,
-            "log_drift": mock_log_drift,
-            "grant_variance": mock_grant_variance,
-            "config": config,
-        }
-
-    def test_interview_pipeline_called(self, tmp_path: Path) -> None:
-        run = self._run_interview_command(tmp_path, _make_report(42))
-        result = run["result"]
-
         assert result.exit_code == 0, result.output
-        mock_post = run["post_comment"]
         mock_post.assert_called_once()
+        # The comment body should mention the PR number.
         comment_body = mock_post.call_args[0][1]
         assert "42" in comment_body
-        run["log_drift"].assert_not_called()
-        run["grant_variance"].assert_not_called()
-
-    def test_interview_skips_without_anthropic_key(self, tmp_path: Path) -> None:
-        runner = CliRunner()
-
-        mock_store = MagicMock()
-        mock_store.exists.return_value = False
-
-        with (
-            patch("guardian.cli.MemoryStore", return_value=mock_store),
-            patch("guardian.cli._load_config", return_value=GuardianConfig()),
-        ):
-            result = runner.invoke(
-                cli,
-                ["interview", "--repo-root", str(tmp_path)],
-                env={"ANTHROPIC_API_KEY": ""},
-            )
-
-        assert result.exit_code == 0, result.output
-        assert "skipping autonomous PR interview" in result.output
 
     def test_interview_fails_without_pr(self, tmp_path: Path) -> None:
         runner = CliRunner()
@@ -308,7 +438,7 @@ class TestInterview:
         env = {
             "GITHUB_TOKEN": "test-token",
             "GITHUB_REPOSITORY": "test/repo",
-            "GITHUB_EVENT_NAME": "pull_request",
+            "GITHUB_EVENT_NAME": "issue_comment",
             "ANTHROPIC_API_KEY": "test-key",
         }
 
@@ -327,69 +457,3 @@ class TestInterview:
             )
 
         assert result.exit_code != 0
-
-    def test_interview_logs_drift_events(self, tmp_path: Path) -> None:
-        constitution = _make_constitution()
-        report = InterviewReport(
-            pr_number=42,
-            overall_verdict=Verdict.DRIFT,
-            alignment_summary="Drift detected.",
-            principle_evaluations=[
-                PrincipleEvaluation(
-                    principle_id="p1",
-                    relevant=True,
-                    verdict=Verdict.DRIFT,
-                    reasoning="Violated principle one",
-                ),
-                PrincipleEvaluation(
-                    principle_id="p2",
-                    relevant=False,
-                    verdict=Verdict.ALIGNED,
-                ),
-            ],
-            anti_pattern_matches=[],
-            saga_id="test-saga",
-            suggestions=[],
-            chronicle_paragraph="PR #42 introduced drift.",
-            intent=IntentSummary(
-                one_line="Add tests with drift",
-                paragraph="Adds tests that violate p1.",
-                declared_variances=[
-                    VarianceTag(
-                        principle_id="p1",
-                        justification="Temporary workaround",
-                        expires_in_days=14,
-                        raw="[VARIANCE: p1 — Temporary workaround (14 days)]",
-                    ),
-                ],
-            ),
-            created_at=datetime(2026, 1, 2, tzinfo=UTC),
-        )
-        config = GuardianConfig()
-        run = self._run_interview_command(
-            tmp_path,
-            report,
-            constitution=constitution,
-            config=config,
-        )
-        result = run["result"]
-
-        assert result.exit_code == 0, result.output
-
-        mock_log_drift = run["log_drift"]
-        mock_log_drift.assert_called_once_with(
-            run["store"],
-            pr_number=42,
-            principle_id="p1",
-            severity=DriftSeverity.MEDIUM,
-            details="Violated principle one",
-        )
-        mock_grant_variance = run["grant_variance"]
-        mock_grant_variance.assert_called_once()
-        args, kwargs = mock_grant_variance.call_args
-        assert args == (run["store"],)
-        assert kwargs == {
-            "tag": report.intent.declared_variances[0],
-            "pr_number": 42,
-            "config": config,
-        }

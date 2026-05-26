@@ -18,11 +18,14 @@ from guardian.cli import cli
 from guardian.models import (
     Constitution,
     DiffAnalysis,
+    DriftSeverity,
     GuardianConfig,
     IntentSummary,
     InterviewReport,
     JournalEntry,
     Principle,
+    PrincipleEvaluation,
+    VarianceTag,
     Verdict,
 )
 
@@ -157,16 +160,18 @@ class TestInterview:
             }
         }
 
-    def test_interview_pipeline_called(self, tmp_path: Path) -> None:
+    def _run_interview_command(
+        self,
+        tmp_path: Path,
+        report: InterviewReport,
+        *,
+        constitution: Constitution | None = None,
+        config: GuardianConfig | None = None,
+    ) -> dict[str, Any]:
         runner = CliRunner()
-
-        # Write a fake event payload to disk.
-        payload = self._make_event_payload(42)
+        payload = self._make_event_payload(report.pr_number)
         event_file = tmp_path / "event.json"
         event_file.write_text(json.dumps(payload), encoding="utf-8")
-
-        constitution = _make_constitution()
-        report = _make_report(42)
 
         mock_store = MagicMock()
         mock_store.exists.return_value = False
@@ -184,6 +189,8 @@ class TestInterview:
         mock_ctx.event_name = "pull_request"
 
         mock_diff_analysis = MagicMock(spec=DiffAnalysis)
+        config = config or GuardianConfig()
+        constitution = constitution or _make_constitution()
 
         env = {
             "GITHUB_TOKEN": "test-token",
@@ -199,7 +206,9 @@ class TestInterview:
             patch("guardian.cli.get_pr_meta", return_value={"number": 42, "title": "Add feature", "body": "", "author": "dev", "base_sha": "abc", "head_sha": "def"}),
             patch("guardian.cli.read_constitution", return_value=constitution),
             patch("guardian.cli._make_anthropic_client", return_value=MagicMock()),
-            patch("guardian.cli._load_config", return_value=GuardianConfig()),
+            patch("guardian.cli._load_config", return_value=config),
+            patch("guardian.governance.log_drift") as mock_log_drift,
+            patch("guardian.governance.grant_variance") as mock_grant_variance,
             patch("guardian.cli.post_pr_comment") as mock_post,
         ):
             mock_ctx_cls.from_env.return_value = mock_ctx
@@ -228,11 +237,26 @@ class TestInterview:
                     env=env,
                 )
 
+        return {
+            "result": result,
+            "store": mock_store,
+            "post_comment": mock_post,
+            "log_drift": mock_log_drift,
+            "grant_variance": mock_grant_variance,
+            "config": config,
+        }
+
+    def test_interview_pipeline_called(self, tmp_path: Path) -> None:
+        run = self._run_interview_command(tmp_path, _make_report(42))
+        result = run["result"]
+
         assert result.exit_code == 0, result.output
+        mock_post = run["post_comment"]
         mock_post.assert_called_once()
-        # The comment body should mention the PR number.
         comment_body = mock_post.call_args[0][1]
         assert "42" in comment_body
+        run["log_drift"].assert_not_called()
+        run["grant_variance"].assert_not_called()
 
     def test_interview_skips_without_anthropic_key(self, tmp_path: Path) -> None:
         runner = CliRunner()
@@ -287,3 +311,69 @@ class TestInterview:
             )
 
         assert result.exit_code != 0
+
+    def test_interview_logs_drift_events(self, tmp_path: Path) -> None:
+        constitution = _make_constitution()
+        report = InterviewReport(
+            pr_number=42,
+            overall_verdict=Verdict.DRIFT,
+            alignment_summary="Drift detected.",
+            principle_evaluations=[
+                PrincipleEvaluation(
+                    principle_id="p1",
+                    relevant=True,
+                    verdict=Verdict.DRIFT,
+                    reasoning="Violated principle one",
+                ),
+                PrincipleEvaluation(
+                    principle_id="p2",
+                    relevant=False,
+                    verdict=Verdict.ALIGNED,
+                ),
+            ],
+            anti_pattern_matches=[],
+            saga_id="test-saga",
+            suggestions=[],
+            chronicle_paragraph="PR #42 introduced drift.",
+            intent=IntentSummary(
+                one_line="Add tests with drift",
+                paragraph="Adds tests that violate p1.",
+                declared_variances=[
+                    VarianceTag(
+                        principle_id="p1",
+                        justification="Temporary workaround",
+                        expires_in_days=14,
+                        raw="[VARIANCE: p1 — Temporary workaround (14 days)]",
+                    ),
+                ],
+            ),
+            created_at=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        config = GuardianConfig()
+        run = self._run_interview_command(
+            tmp_path,
+            report,
+            constitution=constitution,
+            config=config,
+        )
+        result = run["result"]
+
+        assert result.exit_code == 0, result.output
+
+        mock_log_drift = run["log_drift"]
+        mock_log_drift.assert_called_once_with(
+            run["store"],
+            pr_number=42,
+            principle_id="p1",
+            severity=DriftSeverity.MEDIUM,
+            details="Violated principle one",
+        )
+        mock_grant_variance = run["grant_variance"]
+        mock_grant_variance.assert_called_once()
+        args, kwargs = mock_grant_variance.call_args
+        assert args == (run["store"],)
+        assert kwargs == {
+            "tag": report.intent.declared_variances[0],
+            "pr_number": 42,
+            "config": config,
+        }

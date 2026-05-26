@@ -91,8 +91,8 @@ class TestLogDrift:
         )
         assert store.exists("drift-ledger.json")
         ledger = store.read_json("drift-ledger.json")
-        assert len(ledger) == 1
-        assert ledger[0]["pr_number"] == 10
+        assert len(ledger["events"]) == 1
+        assert ledger["events"][0]["pr_number"] == 10
 
     def test_appends_multiple_events(self, store: FakeStore) -> None:
         log_drift(store, pr_number=1, principle_id="P1",
@@ -100,7 +100,7 @@ class TestLogDrift:
         log_drift(store, pr_number=2, principle_id="P2",
                   severity=DriftSeverity.HIGH, details="Second")
         ledger = store.read_json("drift-ledger.json")
-        assert len(ledger) == 2
+        assert len(ledger["events"]) == 2
 
     def test_accepts_string_severity(self, store: FakeStore) -> None:
         event = log_drift(
@@ -123,7 +123,7 @@ class TestLogDrift:
         log_drift(store, pr_number=1, principle_id="P1",
                   severity=DriftSeverity.LOW, details="ts test", now=_fixed_now())
         ledger = store.read_json("drift-ledger.json")
-        assert "2026-05-22" in ledger[0]["timestamp"]
+        assert "2026-05-22" in ledger["events"][0]["timestamp"]
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +196,23 @@ class TestGrantVariance:
         grant_variance(store, tag2, pr_number=2, config=config)
         timers = store.read_json("debt-timers.json")
         assert len(timers) == 2
+
+    def test_duplicate_variance_returns_existing_timer(
+        self, store: FakeStore, config: GuardianConfig
+    ) -> None:
+        tag = _make_variance_tag("P1", justification="same workaround")
+        first = grant_variance(store, tag, pr_number=42, config=config, now=_fixed_now())
+        second = grant_variance(
+            store,
+            tag,
+            pr_number=42,
+            config=config,
+            now=_fixed_now() + timedelta(days=1),
+        )
+
+        assert second.id == first.id
+        timers = store.read_json("debt-timers.json")
+        assert len(timers) == 1
 
 
 # ---------------------------------------------------------------------------

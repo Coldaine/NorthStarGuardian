@@ -12,10 +12,9 @@ through a MemoryStore instance.  Functions perform read-modify-write; callers
 are responsible for concurrency if needed.
 
 Blocking-escalation behavior is gated by ``GuardianConfig.enable_blocking_escalation``
-(default False).  The escalation machinery always records the level change; the
-merge-block side effect (``blocks_pr=True``) is only returned when the flag is
-enabled, honoring the North Star anti-goal that the Guardian must not become an
-authority by default.
+(default False).  The escalation machinery always records the level change; any
+merge-block side effect is opt-in only, honoring the North Star anti-goal that
+the Guardian must not become an authority by default.
 """
 
 from __future__ import annotations
@@ -67,12 +66,16 @@ def _ensure_aware(dt: datetime) -> datetime:
 def _load_drift_ledger(store: Any) -> list[dict[str, Any]]:
     if store.exists(_DRIFT_LEDGER):
         data = store.read_json(_DRIFT_LEDGER)
+        if isinstance(data, dict):
+            events = data.get("events", [])
+            return events if isinstance(events, list) else []
+        # Backward compatibility for early pre-release ledgers.
         return data if isinstance(data, list) else []
     return []
 
 
 def _save_drift_ledger(store: Any, ledger: list[dict[str, Any]]) -> None:
-    store.write_json(_DRIFT_LEDGER, ledger)
+    store.write_json(_DRIFT_LEDGER, {"events": ledger})
 
 
 def _load_debt_timers(store: Any) -> list[dict[str, Any]]:
@@ -237,6 +240,17 @@ def grant_variance(
     days = tag.expires_in_days if tag.expires_in_days > 0 else config.variance_default_days
     expires = created + timedelta(days=days)
 
+    timers = _load_debt_timers(store)
+    for existing in timers:
+        timer = _timer_from_dict(existing)
+        if (
+            timer.resolved_at is None
+            and timer.pr_number == pr_number
+            and timer.principle_id == tag.principle_id
+            and timer.justification.strip() == tag.justification.strip()
+        ):
+            return timer
+
     timer = DebtTimer(
         id=str(uuid.uuid4()),
         pr_number=pr_number,
@@ -249,7 +263,6 @@ def grant_variance(
         affected_paths=affected_paths or [],
     )
 
-    timers = _load_debt_timers(store)
     timers.append(_timer_to_dict(timer))
     _save_debt_timers(store, timers)
 

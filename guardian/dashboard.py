@@ -350,9 +350,16 @@ def _load_drift_events(store: MemoryStore) -> list[DriftEvent]:
         return []
     try:
         raw = store.read_json("drift-ledger.json")
+        if isinstance(raw, dict):
+            raw_events = raw.get("events", [])
+        elif isinstance(raw, list):
+            raw_events = raw
+        else:
+            return []
+
         events: list[DriftEvent] = []
-        for item in raw.get("events", []):
+        for item in raw_events:
             events.append(DriftEvent(**item))
         return events
-    except (ValueError, KeyError):
+    except (TypeError, ValueError, KeyError):
         return []

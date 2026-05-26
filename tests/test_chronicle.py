@@ -1,13 +1,12 @@
 """Tests for guardian.chronicle.
 
 Uses a FakeStore that avoids any git subprocess calls.
-The AnthropicClient is mocked for assign_saga tests.
+FakeLLMClient provides queued saga-assignment responses.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
 
 from guardian.chronicle import (
     assign_saga,
@@ -24,7 +23,7 @@ from guardian.models import (
     SagaStatus,
     Verdict,
 )
-from tests.conftest import FakeStore
+from tests.conftest import FakeLLMClient, FakeStore
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -166,15 +165,9 @@ class TestWriteJournalEntry:
 
 
 class TestAssignSaga:
-    def _make_client(self, response_text: str) -> MagicMock:
-        """Return a mock Anthropic client that returns *response_text*."""
-        content_block = MagicMock()
-        content_block.text = response_text
-        message = MagicMock()
-        message.content = [content_block]
-        client = MagicMock()
-        client.messages.create.return_value = message
-        return client
+    def _make_client(self, response_text: str) -> FakeLLMClient:
+        """Return a fake LLM client that returns *response_text*."""
+        return FakeLLMClient(response_text)
 
     def test_match_existing_saga(self) -> None:
         store = FakeStore()

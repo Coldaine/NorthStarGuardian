@@ -7,6 +7,55 @@ from typing import Any
 import pytest
 
 
+class FakeLLMClient:
+    """In-memory LLM client double. Returns canned responses based on prompt content.
+
+    Usage::
+        client = FakeLLMClient()
+        client.queue("the exact response text")  # returns this for next call
+        client.queue("another response")          # returns this for call after that
+        # or seed all at once:
+        client = FakeLLMClient("resp1", "resp2", "resp3")
+    """
+
+    def __init__(self, *responses: str) -> None:
+        self._queue: list[str] = list(responses)
+        self.call_count: int = 0
+        self.calls: list[dict[str, str | int]] = []
+
+    def queue(self, response: str) -> None:
+        self._queue.append(response)
+
+    def generate(
+        self,
+        *,
+        system: str,
+        user: str,
+        model: str = "test",
+        max_tokens: int = 4096,
+    ) -> str:
+        self.call_count += 1
+        self.calls.append({
+            "system": system,
+            "user": user,
+            "model": model,
+            "max_tokens": max_tokens,
+        })
+        if self._queue:
+            return self._queue.pop(0)
+        raise RuntimeError(
+            f"FakeLLMClient: no queued response for call #{self.call_count}. "
+            f"Prompt received:\n{user[:200]}"
+        )
+
+    def assert_call_count(self, expected: int) -> None:
+        """Assert that *expected* calls were made."""
+        actual = self.call_count
+        assert actual == expected, (
+            f"Expected {expected} LLM calls, got {actual}"
+        )
+
+
 class FakeStore:
     """In-memory stand-in for MemoryStore; no git, no filesystem side-effects.
 

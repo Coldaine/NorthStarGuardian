@@ -4,7 +4,7 @@
 
 ---
 
-## CRITICAL ISSUE: LLM Provider — Replace Anthropic SDK with OpenAI Responses API
+## CRITICAL ISSUE: LLM Provider Boundary — Abstract Raw SDK Usage
 
 **Discovered:** 2026-05-22  
 **Severity:** Critical  
@@ -12,29 +12,21 @@
 
 ### The Problem
 
-The entire codebase is hardwired to the Anthropic Python SDK:
+The first implementation mixed raw Anthropic SDK clients with an emerging fake-client test interface:
 
-- **`guardian/analyze.py:226-245`** — `_call_llm()` directly calls `client.messages.create()` with Anthropic-specific kwargs (`model`, `system`, `max_tokens`, `messages`).
-- **`guardian/cli.py:47-54`** — `_make_anthropic_client()` constructs `anthropic.Anthropic(api_key=...)` explicitly.
-- **`guardian/cli.py:214-219`** and throughout — passes an `Anthropic` client instance as `client=client` to every LLM function.
-- **`guardian/chronicle.py:284`** — `assign_saga()` takes `client: anthropic.Anthropic` in the type signature.
-- **`pyproject.toml:13`** — `anthropic>=0.40.0` is a hard dependency.
+- **Resolved in this stack:** `guardian.analyze` and `guardian.chronicle` now call a shared `generate(...)` interface.
+- **Resolved in this stack:** `guardian.cli` constructs an adapter instead of passing a raw provider SDK client into domain modules.
+- **Still open:** the only bundled backend is Anthropic. Adding an OpenAI Responses API backend remains a future provider-expansion task, not a correctness blocker for the current adapter boundary.
 
-This means:
-- You need an `ANTHROPIC_API_KEY` secret (currently; swapping to `OPENAI_API_KEY` is the migration goal)
-- The `system` prompt parameter is Anthropic-specific (OpenAI uses a top-level `instructions` field or `role: "developer"`/`role: "system"` in the input array in the Responses API — check the latest API docs for the current canonical shape)
-- The `messages.create()` API is Anthropic-specific (OpenAI uses `client.responses.create()` in the Responses API or `client.chat.completions.create()` in the Chat Completions API — verify compatibility with the current API version)
-- The model names (`claude-sonnet-4-6`, `claude-opus-4-7`) are Anthropic models — verify the latest official model IDs before migrating
+This means provider-specific API details now live at the boundary. Replacing or adding providers should not require touching analysis, chronicle, governance, or dashboard logic.
 
 ### What Needs to Change
 
-1. **Abstract the LLM boundary** — Define a `LLMClient` protocol/interface that both Anthropic and OpenAI backends can implement. The rest of the code should depend on the protocol, not on `anthropic.Anthropic`.
-2. **Add an OpenAI Responses API backend** — Implement the protocol using `openai.responses.create()` or `openai.chat.completions.create()`.
-3. **Keep the Anthropic backend as optional** — or remove it entirely based on preference.
-4. **Update model config defaults** from `claude-sonnet-4-6` to the corresponding OpenAI model (e.g., `gpt-4o` or whatever the Responses API uses).
-5. **Update environment variable** from `ANTHROPIC_API_KEY` to `OPENAI_API_KEY` (or support both).
-6. **Update all 4 call sites** in `analyze.py` (`evaluate_alignment`, `detect_anti_patterns`, `assess_intent`, `_draft_chronicle`) and `chronicle.py` (`assign_saga`) to use the abstract interface.
-7. **Update CI workflows** — `guardian.yml` and `guardian-debt.yml` reference `ANTHROPIC_API_KEY`.
+1. **Abstract the LLM boundary** — ✅ Implemented as `guardian.llm.LLMClient` plus `AnthropicLLMClient`.
+2. **Update all domain call sites** — ✅ `analyze.py` and `chronicle.py` use the abstract interface.
+3. **Add an OpenAI Responses API backend** — still open, optional provider expansion.
+4. **Update model config defaults** if/when the default provider changes.
+5. **Update environment variable support** if/when another provider is bundled.
 
 ### Research Context
 
@@ -73,8 +65,8 @@ Each backend wraps the raw SDK and exposes a single `generate(prompt: str, syste
 
 | # | Issue | Severity | Notes |
 |---|-------|----------|-------|
-| B1 | `log_drift()` is never called from the interview pipeline | **Critical** | `governance.py:log_drift` is defined but no code in `cli.py:interview` or `run_interview` calls it. The drift ledger is never populated in production. |
-| B2 | `grant_variance()` is never called from the interview pipeline | **Critical** | Variance tags are parsed from PR bodies in `assess_intent` and stored in `IntentSummary.declared_variances`, but never acted upon. No debt timers are ever created. |
+| B1 | `log_drift()` is never called from the interview pipeline | **Critical** | ✅ RESOLVED — `cli.py:interview` records drift evaluations into the drift ledger. |
+| B2 | `grant_variance()` is never called from the interview pipeline | **Critical** | ✅ RESOLVED — declared variance tags create idempotent debt timers during interviews. |
 | B3 | `suggestions` is always empty in `InterviewReport` | Medium | `run_interview` sets `suggestions=[]` (line 726). The LLM is never asked to generate suggestions. |
 | B4 | `saga_id` is always `None` from `run_interview` | Medium | Saga assignment happens *after* `run_interview` returns, in `cli.py`. The report is created without a saga reference. |
 
@@ -82,8 +74,8 @@ Each backend wraps the raw SDK and exposes a single `generate(prompt: str, syste
 
 | # | Issue | Severity | Notes |
 |---|-------|----------|-------|
-| C1 | `guardian/github_io.py` has zero dedicated tests | **High** | `GitHubContext.from_env`, `post_pr_comment`, `get_pr_diff`, `get_pr_meta` are all untested |
-| C2 | CLI handler functions untested | **High** | `_handle_init_guardian`, `_handle_re_anchor`, `_handle_amend`, `_handle_chronicle`, `_handle_dashboard`, `_handle_status`, `sweep_debt`, `init_local` — all untested |
+| C1 | `guardian/github_io.py` has zero dedicated tests | **High** | ✅ RESOLVED — added tests for PR event parsing, diff reconstruction, metadata extraction, and PR comments. |
+| C2 | CLI command handlers untested | **High** | NOT APPLICABLE — ongoing slash-command handlers were removed to preserve the autonomous agent-side boundary. |
 | C3 | No tests for `_call_llm` edge cases | Medium | Missing tests for: no text content block, multiple content blocks |
 | C4 | `analyze_diff` edge cases untested | Medium | Renamed files, binary files (no patch), empty diff, files with special characters |
 | C5 | `_parse_variance_tags` edge cases untested | Low | Em-dash separators, embedded variance tags in code blocks, case-insensitive matching |
@@ -92,15 +84,15 @@ Each backend wraps the raw SDK and exposes a single `generate(prompt: str, syste
 
 | # | Issue | Severity | Notes |
 |---|-------|----------|-------|
-| D1 | Heavy `MagicMock` usage for LLM | Medium | `test_analyze.py` (708 lines) and `test_chronicle.py` (482 lines) use `MagicMock` extensively. Tests verify mock call patterns rather than real data flow. |
+| D1 | Heavy `MagicMock` usage for LLM | Medium | ✅ IMPROVED — analysis, chronicle, and E2E LLM paths use `FakeLLMClient`; boundary tests still use mocks for GitHub/filesystem seams. |
 | D2 | `run_interview` tests verify `call_count == 4` | Medium | Brittle assertion — depends on implementation detail of how many LLM calls are made |
-| D3 | No `FakeLLMClient` pattern | Medium | A dict-based fake that maps prompt patterns to canned responses would eliminate all MagicMock usage |
+| D3 | No `FakeLLMClient` pattern | Medium | ✅ RESOLVED — `tests/conftest.py` provides a queued `FakeLLMClient`. |
 
 ### Category E: Architectural
 
 | # | Issue | Severity | Notes |
 |---|-------|----------|-------|
-| E1 | LLM provider hardwired to Anthropic | **Critical** | See critical issue above |
+| E1 | LLM provider hardwired to Anthropic | **Critical** | PARTIAL — domain modules depend on `LLMClient`; Anthropic remains the bundled backend. |
 | E2 | `except Exception: pass` in 4 places | Medium | `cli.py:42`, `memory.py:98/120/178`, `dashboard.py:343` — silently swallow errors |
 | E3 | No diff size validation before LLM call | Medium | A 10,000-line diff would produce a massive prompt, potentially hitting token limits |
 | E4 | Race condition in worktree-based memory | Low | Two concurrent PRs share the same worktree path; no locking |

@@ -12,10 +12,10 @@ from pathlib import Path
 from typing import Any
 
 import click
-from anthropic import Anthropic
 
 from guardian.constitution import initialize_constitution, read_constitution, write_constitution
 from guardian.github_io import GitHubContext, get_pr_diff, get_pr_meta, post_pr_comment
+from guardian.llm import AnthropicLLMClient, LLMClient
 from guardian.memory import MemoryStore
 from guardian.models import GuardianConfig
 
@@ -37,12 +37,12 @@ def _load_config(store: MemoryStore) -> GuardianConfig:
     return GuardianConfig()
 
 
-def _make_anthropic_client() -> Anthropic:
+def _make_anthropic_client() -> LLMClient:
     """Construct an Anthropic client from the environment."""
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise click.ClickException("ANTHROPIC_API_KEY environment variable is not set.")
-    return Anthropic(api_key=api_key)
+    return AnthropicLLMClient(api_key=api_key)
 
 
 def _anthropic_key_configured() -> bool:

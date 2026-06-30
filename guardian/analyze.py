@@ -727,6 +727,17 @@ def run_interview(
         model=model,
     )
 
+    # Step 6 — actionable suggestions
+    suggestions = _draft_suggestions(
+        diff=diff,
+        north_star=north_star,
+        intent=intent,
+        evaluations=evaluations,
+        overall_verdict=overall_verdict,
+        client=client,
+        model=model,
+    )
+
     return InterviewReport(
         pr_number=diff.pr_number,
         overall_verdict=overall_verdict,
@@ -734,7 +745,7 @@ def run_interview(
         principle_evaluations=evaluations,
         anti_pattern_matches=ap_matches,
         saga_id=None,  # saga assignment is handled by the chronicle module
-        suggestions=[],  # concrete suggestions are a downstream concern
+        suggestions=suggestions,
         chronicle_paragraph=chronicle_paragraph,
         intent=intent,
         created_at=datetime.now(tz=UTC),
@@ -788,3 +799,39 @@ def _draft_chronicle(
     )
 
     return _call_llm(client, model=model, system=system, user=user, max_tokens=512)
+
+
+def _draft_suggestions(
+    *,
+    diff: DiffAnalysis,
+    north_star: NorthStar,
+    intent: IntentSummary,
+    evaluations: list[PrincipleEvaluation],
+    overall_verdict: Verdict,
+    client: Any,
+    model: str,
+) -> list[str]:
+    """Ask the LLM for 1-3 concrete suggestions."""
+    prompt = _render(
+        "prompts/draft_suggestions.md.j2",
+        diff=diff,
+        north_star=north_star,
+        intent=intent,
+        evaluations=evaluations,
+        overall_verdict=overall_verdict.value,
+    )
+
+    raw = _call_llm(
+        client,
+        model=model,
+        system="You are the Repository Guardian. Suggest improvements.",
+        user=prompt,
+        max_tokens=256,
+    )
+    # Extract lines starting with "- "
+    suggestions = [
+        line.lstrip("- ").strip()
+        for line in raw.splitlines()
+        if line.strip().startswith("- ")
+    ]
+    return suggestions[:3]

@@ -331,10 +331,46 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
     # 6. Write journal entry.
     chronicle.write_journal_entry(store, report, saga)
 
-    # 7. Render dashboard.
+    # 7. Governance & Drift Ledgering.
+    from guardian import governance
+    from guardian.models import Verdict, DriftSeverity
+
+    # Log drift for specific principle evaluations.
+    for pe in report.principle_evaluations:
+        if pe.verdict == Verdict.DRIFT:
+            governance.log_drift(
+                store,
+                pr_number=report.pr_number,
+                principle_id=pe.principle_id,
+                severity=DriftSeverity.MEDIUM,
+                details=pe.reasoning,
+            )
+
+    # Log drift for detected anti-patterns.
+    for apm in report.anti_pattern_matches:
+        governance.log_drift(
+            store,
+            pr_number=report.pr_number,
+            principle_id="anti-pattern",
+            severity=DriftSeverity.HIGH,
+            details=f"Detected pattern: {apm.pattern_name}. {apm.reasoning}",
+        )
+
+    # Persist declared variances as DebtTimers.
+    affected_paths = [f.path for f in diff_analysis.files] if diff_analysis.files else []
+    for tag in report.intent.declared_variances:
+        governance.grant_variance(
+            store,
+            tag,
+            pr_number=report.pr_number,
+            config=config,
+            affected_paths=affected_paths,
+        )
+
+    # 8. Render dashboard.
     dashboard.render_dashboard(store, north_star)
 
-    # 8. Flush repo-native Guardian state.
+    # 9. Flush repo-native Guardian state.
     pr_num = ctx.pr.number
     with store.session(
         f"guardian: interview PR #{pr_num} — {report.overall_verdict.value}"

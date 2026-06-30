@@ -457,3 +457,165 @@ class TestInterview:
             )
 
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# guardian command (dispatch)
+# ---------------------------------------------------------------------------
+
+class TestCommandDispatch:
+    def test_unknown_command_replies_with_help(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        mock_ctx = MagicMock()
+        mock_ctx.comment_body = "/unknown-cmd"
+        mock_ctx.pr = MagicMock()
+        
+        with (
+            patch("guardian.cli.MemoryStore"),
+            patch("guardian.cli.GitHubContext") as mock_ctx_cls,
+            patch("guardian.cli.post_pr_comment") as mock_post,
+            patch("guardian.cli._load_config", return_value=GuardianConfig()),
+        ):
+            mock_ctx_cls.from_env.return_value = mock_ctx
+            result = runner.invoke(cli, ["command", "--repo-root", str(tmp_path)])
+            
+        assert result.exit_code == 0
+        mock_post.assert_called_once()
+        assert "unknown command" in mock_post.call_args[0][1]
+
+    def test_init_guardian_handler(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        mock_ctx = MagicMock()
+        mock_ctx.comment_body = "/init-guardian"
+        mock_ctx.pr = MagicMock()
+
+        with (
+            patch("guardian.cli.MemoryStore"),
+            patch("guardian.cli.GitHubContext") as mock_ctx_cls,
+            patch("guardian.cli.post_pr_comment") as mock_post,
+            patch("guardian.cli._load_config", return_value=GuardianConfig()),
+        ):
+            mock_ctx_cls.from_env.return_value = mock_ctx
+            runner.invoke(cli, ["command", "--repo-root", str(tmp_path)])
+
+        assert "init-local" in mock_post.call_args[0][1]
+
+    def test_re_anchor_handler(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        mock_ctx = MagicMock()
+        mock_ctx.comment_body = "/re-anchor"
+        mock_ctx.pr = MagicMock()
+        
+        north_star = _make_north_star()
+
+        with (
+            patch("guardian.cli.MemoryStore"),
+            patch("guardian.cli.GitHubContext") as mock_ctx_cls,
+            patch("guardian.cli.post_pr_comment") as mock_post,
+            patch("guardian.cli.read_north_star", return_value=north_star),
+            patch("guardian.cli._load_config", return_value=GuardianConfig()),
+        ):
+            mock_ctx_cls.from_env.return_value = mock_ctx
+            runner.invoke(cli, ["command", "--repo-root", str(tmp_path)])
+
+        assert "Guardian Re-Anchor" in mock_post.call_args[0][1]
+        assert "Principle one" in mock_post.call_args[0][1]
+
+    def test_chronicle_handler(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        mock_ctx = MagicMock()
+        mock_ctx.comment_body = "/chronicle"
+        mock_ctx.pr = MagicMock()
+        
+        entry = _make_journal_entry()
+
+        with (
+            patch("guardian.cli.MemoryStore"),
+            patch("guardian.cli.GitHubContext") as mock_ctx_cls,
+            patch("guardian.cli.post_pr_comment") as mock_post,
+            patch("guardian.chronicle.read_chronicle", return_value=[entry]),
+            patch("guardian.cli._load_config", return_value=GuardianConfig()),
+        ):
+            mock_ctx_cls.from_env.return_value = mock_ctx
+            runner.invoke(cli, ["command", "--repo-root", str(tmp_path)])
+
+        assert "Guardian Chronicle" in mock_post.call_args[0][1]
+        assert "PR #42" in mock_post.call_args[0][1]
+
+    def test_dashboard_handler(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        mock_ctx = MagicMock()
+        mock_ctx.comment_body = "/dashboard"
+        mock_ctx.pr = MagicMock()
+        
+        config = GuardianConfig(pages_url="http://dashboard")
+
+        with (
+            patch("guardian.cli.MemoryStore"),
+            patch("guardian.cli.GitHubContext") as mock_ctx_cls,
+            patch("guardian.cli.post_pr_comment") as mock_post,
+            patch("guardian.cli.read_north_star"),
+            patch("guardian.dashboard.render_dashboard"),
+            patch("guardian.cli._load_config", return_value=config),
+        ):
+            mock_ctx_cls.from_env.return_value = mock_ctx
+            runner.invoke(cli, ["command", "--repo-root", str(tmp_path)])
+
+        assert "http://dashboard" in mock_post.call_args[0][1]
+
+    def test_status_handler(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        mock_ctx = MagicMock()
+        mock_ctx.comment_body = "/status"
+        mock_ctx.pr = MagicMock()
+
+        with (
+            patch("guardian.cli.MemoryStore"),
+            patch("guardian.cli.GitHubContext") as mock_ctx_cls,
+            patch("guardian.cli.post_pr_comment") as mock_post,
+            patch("guardian.governance.check_debt_timers", return_value={}),
+            patch("guardian.chronicle.read_chronicle", return_value=[]),
+            patch("guardian.cli._load_config", return_value=GuardianConfig()),
+        ):
+            mock_ctx_cls.from_env.return_value = mock_ctx
+            runner.invoke(cli, ["command", "--repo-root", str(tmp_path)])
+
+        assert "Guardian Status" in mock_post.call_args[0][1]
+        assert "none recorded" in mock_post.call_args[0][1]
+
+
+# ---------------------------------------------------------------------------
+# guardian sweep-debt
+# ---------------------------------------------------------------------------
+
+class TestSweepDebt:
+    def test_sweep_debt_escalates_and_reports(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        mock_store = MagicMock()
+        mock_store.session.return_value.__enter__ = MagicMock()
+        
+        from guardian.models import DebtTimer, DebtLevel
+        
+        expired_debt = DebtTimer(
+            id="debt-1", pr_number=1, principle_id="p1", 
+            justification="test",
+            level=DebtLevel.NEUTRAL, 
+            expires_at=datetime(2026, 1, 1, tzinfo=UTC),
+            created_at=datetime(2025, 12, 1, tzinfo=UTC)
+        )
+        
+        mock_buckets = {"active": [], "approaching_expiry": [], "expired": [expired_debt]}
+        
+        with (
+            patch("guardian.cli.MemoryStore", return_value=mock_store),
+            patch("guardian.governance.check_debt_timers", return_value=mock_buckets),
+            patch("guardian.governance.escalate_debt") as mock_escalate,
+            patch("guardian.cli._load_config", return_value=GuardianConfig()),
+            patch("os.environ", {"GITHUB_TOKEN": "t", "GITHUB_REPOSITORY": "o/r"}),
+            patch("github.Github") as mock_gh,
+        ):
+            result = runner.invoke(cli, ["sweep-debt", "--repo-root", str(tmp_path)])
+            
+        assert result.exit_code == 0, result.output
+        mock_escalate.assert_called_once()
+        mock_gh.return_value.get_repo.return_value.create_issue.assert_called_once()

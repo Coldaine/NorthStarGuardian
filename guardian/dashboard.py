@@ -295,14 +295,30 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
     embeds everything into ``dashboard.html.j2``, writes the result to
     ``memory/dashboard.html``, and returns the HTML string.
     """
+    from guardian import governance
+
     journal = read_chronicle(store)
-    drift_events = _load_drift_events(store)
+    drift_events = governance.load_drift_events(store)
     sagas = _load_all_sagas(store)
+    all_timers = governance.load_debt_timers(store)
+    debt_status = governance.check_debt_timers(store)
 
     gantt_src = generate_gantt(sagas)
     gitgraph_src = generate_gitgraph(drift_events, journal)
     quadrant_src = generate_quadrant(journal)
     mindmap_src = generate_mindmap(north_star, journal)
+
+    # Count principle activity from drift events and debt timers
+    principle_counts: dict[str, int] = {}
+    for event in drift_events:
+        principle_counts[event.principle_id] = principle_counts.get(event.principle_id, 0) + 1
+    for timer in all_timers:
+        principle_counts[timer.principle_id] = principle_counts.get(timer.principle_id, 0) + 1
+
+    sorted_active_principles = sorted(principle_counts.items(), key=lambda x: x[1], reverse=True)
+
+    expired_timers = debt_status.get("expired", [])
+    latest_change = journal[-1] if journal else None
 
     generated_at = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -317,6 +333,10 @@ def render_dashboard(store: MemoryStore, north_star: NorthStar) -> str:
         quadrant_src=quadrant_src,
         mindmap_src=mindmap_src,
         generated_at=generated_at,
+        drift_events=drift_events,
+        expired_timers=expired_timers,
+        active_principles=sorted_active_principles,
+        latest_change=latest_change,
     )
 
     store.write("memory/dashboard.html", html)
@@ -342,17 +362,3 @@ def _load_all_sagas(store: MemoryStore) -> list[Saga]:
         except (KeyError, ValueError):
             continue
     return sagas
-
-
-def _load_drift_events(store: MemoryStore) -> list[DriftEvent]:
-    """Load drift events from memory/drift-ledger.json, returning [] if absent."""
-    if not store.exists("memory/drift-ledger.json"):
-        return []
-    try:
-        raw = store.read_json("memory/drift-ledger.json")
-        events: list[DriftEvent] = []
-        for item in raw.get("events", []):
-            events.append(DriftEvent(**item))
-        return events
-    except (ValueError, KeyError):
-        return []

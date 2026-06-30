@@ -67,7 +67,10 @@ def _ensure_aware(dt: datetime) -> datetime:
 def _load_drift_ledger(store: Any) -> list[dict[str, Any]]:
     if store.exists(_DRIFT_LEDGER):
         data = store.read_json(_DRIFT_LEDGER)
-        return data if isinstance(data, list) else []
+        if isinstance(data, dict) and "events" in data:
+            return data["events"]
+        elif isinstance(data, list):
+            return data
     return []
 
 
@@ -78,12 +81,32 @@ def _save_drift_ledger(store: Any, ledger: list[dict[str, Any]]) -> None:
 def _load_debt_timers(store: Any) -> list[dict[str, Any]]:
     if store.exists(_DEBT_TIMERS):
         data = store.read_json(_DEBT_TIMERS)
-        return data if isinstance(data, list) else []
+        if isinstance(data, dict) and "timers" in data:
+            return data["timers"]
+        elif isinstance(data, list):
+            return data
     return []
 
 
 def _save_debt_timers(store: Any, timers: list[dict[str, Any]]) -> None:
     store.write_json(_DEBT_TIMERS, timers)
+
+
+def load_drift_events(store: Any) -> list[DriftEvent]:
+    """Exposed loader of drift events from memory/drift-ledger.json."""
+    return [_drift_from_dict(d) for d in _load_drift_ledger(store)]
+
+
+def load_debt_timers(store: Any) -> list[DebtTimer]:
+    """Exposed loader of debt timers from memory/debt-timers.json."""
+    return [_timer_from_dict(d) for d in _load_debt_timers(store)]
+
+
+def map_drift_severity(verdict_or_source: str) -> DriftSeverity:
+    """Map an interview verdict or anti-pattern match to DriftSeverity."""
+    if verdict_or_source == "anti-pattern":
+        return DriftSeverity.HIGH
+    return DriftSeverity.MEDIUM
 
 
 def _timer_from_dict(d: dict[str, Any]) -> DebtTimer:

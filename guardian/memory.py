@@ -89,15 +89,12 @@ class MemoryStore:
         parent.mkdir(parents=True, exist_ok=True)
 
         # Atomic write-replace pattern
-        fd, temp_path = tempfile.mkstemp(
-            dir=parent, prefix=f"{full.name}.", suffix=".tmp"
-        )
+        fd, temp_path = tempfile.mkstemp(dir=parent, prefix=f"{full.name}.", suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(content)
                 f.flush()
-                if os.name == "posix":
-                    os.fsync(f.fileno())
+                os.fsync(f.fileno())
             os.replace(temp_path, full)
         except Exception as exc:
             if os.path.exists(temp_path):

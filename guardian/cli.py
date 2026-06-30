@@ -69,9 +69,7 @@ def _load_review_north_star(
             )
         api_key = environ.get("LINEAR_API_KEY")
         if not api_key:
-            raise click.ClickException(
-                "LINEAR_API_KEY environment variable is not set."
-            )
+            raise click.ClickException("LINEAR_API_KEY environment variable is not set.")
 
         snapshot = LinearClient(api_key).fetch_document(config.linear.document_id)
         store.write("northstar.md", snapshot.content)
@@ -140,9 +138,7 @@ def _make_openai_client() -> OpenAI:
     """Construct an OpenAI client from the environment."""
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        raise click.ClickException(
-            "OPENAI_API_KEY environment variable is not set."
-        )
+        raise click.ClickException("OPENAI_API_KEY environment variable is not set.")
     return OpenAI(api_key=api_key)
 
 
@@ -251,6 +247,7 @@ def _format_report_comment(report: Any, config: GuardianConfig) -> str:
 # CLI root
 # ---------------------------------------------------------------------------
 
+
 @click.group()
 def cli() -> None:
     """NorthStarGuardian — advisory PR governance agent."""
@@ -259,6 +256,7 @@ def cli() -> None:
 # ---------------------------------------------------------------------------
 # guardian interview
 # ---------------------------------------------------------------------------
+
 
 @cli.command()
 @click.option(
@@ -314,10 +312,7 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
     # _load_saga_index and _saga_from_index_entry are module-internal helpers;
     # accessing them is acceptable here since cli.py is a first-party sibling.
     saga_index = chronicle._load_saga_index(store)
-    all_sagas = [
-        chronicle._saga_from_index_entry(entry)
-        for entry in saga_index.get("sagas", [])
-    ]
+    all_sagas = [chronicle._saga_from_index_entry(entry) for entry in saga_index.get("sagas", [])]
     saga = chronicle.assign_saga(
         store,
         report.intent,
@@ -333,31 +328,37 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
 
     # 7. Governance & Drift Ledgering.
     from guardian import governance
-    from guardian.models import Verdict, DriftSeverity
+    from guardian.models import DriftSeverity, Verdict
 
     # Log drift for specific principle evaluations.
     for pe in report.principle_evaluations:
         if pe.verdict == Verdict.DRIFT:
+            severity = governance.map_drift_severity("drift")
             governance.log_drift(
                 store,
                 pr_number=report.pr_number,
                 principle_id=pe.principle_id,
-                severity=DriftSeverity.MEDIUM,
-                details=pe.reasoning,
+                severity=severity,
+                details=pe.reasoning or "Principle evaluation returned drift.",
             )
 
     # Log drift for detected anti-patterns.
     for apm in report.anti_pattern_matches:
+        severity = governance.map_drift_severity("anti-pattern")
         governance.log_drift(
             store,
             pr_number=report.pr_number,
             principle_id="anti-pattern",
-            severity=DriftSeverity.HIGH,
-            details=f"Detected pattern: {apm.pattern_name}. {apm.reasoning}",
+            severity=severity,
+            details=f"Detected pattern: {apm.pattern_id}. {apm.explanation}",
         )
 
     # Persist declared variances as DebtTimers.
-    affected_paths = [f.path for f in diff_analysis.files] if diff_analysis.files else []
+    affected_paths = (
+        [f.path for f in diff_analysis.files]
+        if hasattr(diff_analysis, "files") and diff_analysis.files
+        else []
+    )
     for tag in report.intent.declared_variances:
         governance.grant_variance(
             store,
@@ -370,11 +371,14 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
     # 8. Render dashboard.
     dashboard.render_dashboard(store, north_star)
 
+    # 8b. Check for outstanding debt.
+    debt_status = governance.check_debt_timers(store)
+    if debt_status["expired"]:
+        click.echo(f"WARNING: {len(debt_status['expired'])} expired debt timers found!")
+
     # 9. Flush repo-native Guardian state.
     pr_num = ctx.pr.number
-    with store.session(
-        f"guardian: interview PR #{pr_num} — {report.overall_verdict.value}"
-    ):
+    with store.session(f"guardian: interview PR #{pr_num} — {report.overall_verdict.value}"):
         pass  # session commits whatever was staged by the above calls
 
     # 9. Post report as a PR comment.
@@ -387,6 +391,7 @@ def interview(event_path: str | None, repo_root: str | None) -> None:
 # ---------------------------------------------------------------------------
 # guardian command  (slash-command dispatcher)
 # ---------------------------------------------------------------------------
+
 
 @cli.command(name="command")
 @click.option(
@@ -449,6 +454,7 @@ def command_dispatch(event_path: str | None, repo_root: str | None) -> None:
 # Slash-command handlers
 # ---------------------------------------------------------------------------
 
+
 def _handle_init_guardian(
     ctx: GitHubContext,
     store: MemoryStore,
@@ -457,7 +463,8 @@ def _handle_init_guardian(
 ) -> None:
     """Handle /init-guardian — post instructions to run init-local."""
     reply = (
-        "## Guardian Setup\n\n"
+        "## Setup Guardian\n\n"
+        "**Consequence:** Reports instructions only; it **does not** mutate state.\n\n"
         "To initialize the repo North Star and Guardian active copy, run the "
         "following command locally:\n\n"
         "```\nguardian init-local\n```\n\n"
@@ -479,23 +486,49 @@ def _handle_re_anchor(
     args: list[str],
 ) -> None:
     """Handle /re-anchor — show current North Star summary and instructions."""
+    loaded_from_source = False
     try:
-        north_star = read_north_star(store)
-        principles_text = "\n".join(
-            f"{p.rank}. {p.text}" for p in north_star.principles
-        )
+        # Build PR metadata if available
+        meta = get_pr_meta(ctx) if ctx.pr else {}
+        root = store.root
+
+        # Re-fetch from canonical source and persist active copy
+        north_star = _load_review_north_star(root, store, config, meta)
+        
+        with store.session("guardian: re-anchor active copy from source"):
+            pass
+        loaded_from_source = True
+    except Exception as exc:
+        # Fallback to reading currently active copy directly
+        try:
+            north_star = read_north_star(store)
+        except Exception:
+            reply = (
+                f"Guardian: re-anchor failed — {exc}. Additionally, no active North Star was found. "
+                "Run `guardian init-local` or configure `.github/guardian/guardian-config.json` first."
+            )
+            if ctx.pr:
+                post_pr_comment(ctx, reply)
+            else:
+                click.echo(reply)
+            return
+
+    principles_text = "\n".join(f"{p.rank}. {p.text}" for p in north_star.principles)
+    if loaded_from_source:
         reply = (
-            f"## Guardian Re-Anchor\n\n"
+            f"## Guardian Re-Anchor Applied\n\n"
+            f"**Consequence:** This command **mutates** state by updating the active copy `.github/guardian/northstar.md` with the latest version from source.\n\n"
             f"**Current identity:** {north_star.identity_statement}\n\n"
             f"**Principles:**\n{principles_text}\n\n"
-            "To refresh these from the configured source, run `/re-anchor`. "
-            "For repo-backed policy, update `docs/northstar.md`; for "
-            "Linear-backed policy, update the configured Linear document."
+            f"North Star fetched from source: **{config.north_star.source}**."
         )
-    except FileNotFoundError:
+    else:
         reply = (
-            "Guardian: no active North Star found. Run `guardian init-local` "
-            "or configure `.github/guardian/guardian-config.json` first."
+            f"## Guardian Re-Anchor\n\n"
+            f"**Consequence:** Reports current active copy summary; it **did not** mutate active copy because refetch failed. "
+            "To refresh from source, run `/re-anchor`.\n\n"
+            f"**Current identity:** {north_star.identity_statement}\n\n"
+            f"**Principles:**\n{principles_text}"
         )
 
     if ctx.pr:
@@ -513,8 +546,8 @@ def _handle_amend(
     """Handle /amend <principle-id> "new text" — amend a specific principle."""
     if len(args) < 2:
         reply = (
-            "Usage: `/amend <principle-id> \"new text\"`\n\n"
-            "Example: `/amend p1 \"All data flows through the LLM layer\"`"
+            'Usage: `/amend <principle-id> "new text"`\n\n'
+            'Example: `/amend p1 "All data flows through the LLM layer"`'
         )
         if ctx.pr:
             post_pr_comment(ctx, reply)
@@ -536,8 +569,10 @@ def _handle_amend(
             )
             reply = (
                 "## Guardian Amendment Proposed\n\n"
-                "Linear-backed North Stars are not edited from PR comments. "
-                f"Created `{issue.identifier}` for review: {issue.url}"
+                f"**Consequence:** Linear-backed North Stars are **not edited directly** from PR comments. "
+                "Instead, this command **mutates** external state by opening a tracking issue in Linear.\n\n"
+                f"Created Linear issue `{issue.identifier}` for review: {issue.url}\n\n"
+                "An administrator must update the source document in Linear once approved."
             )
         else:
             updated = amend_north_star(
@@ -553,6 +588,7 @@ def _handle_amend(
 
             reply = (
                 f"## Guardian Amendment Applied\n\n"
+                f"**Consequence:** This command **mutates** active-copy state by directly updating `.github/guardian/northstar.md` and logging the amendment chronicle.\n\n"
                 f"**Principle `{target_id}`** updated to:\n\n"
                 f"> {new_text}\n\n"
                 f"North Star version is now **v{updated.version}**."
@@ -578,11 +614,18 @@ def _handle_chronicle(
     try:
         entries = chronicle.read_chronicle(store)
         if not entries:
-            reply = "Guardian: no journal entries yet."
+            reply = (
+                "## Guardian Chronicle\n\n"
+                "**Consequence:** Reports state only; it **does not** mutate files.\n\n"
+                "No journal entries yet."
+            )
         else:
             # Post the 5 most recent entries.
             recent = entries[-5:]
-            body_parts = ["## Guardian Chronicle (recent entries)\n"]
+            body_parts = [
+                "## Guardian Chronicle (recent entries)\n",
+                "**Consequence:** Reports state only; it **does not** mutate files.\n",
+            ]
             for entry in reversed(recent):
                 body_parts.append(entry.body_markdown)
                 body_parts.append("\n---\n")
@@ -614,15 +657,14 @@ def _handle_dashboard(
         if config.pages_url:
             reply = (
                 f"## Guardian Dashboard\n\n"
-                f"Dashboard has been regenerated. "
-                f"[View it here]({config.pages_url})."
+                f"**Consequence:** This command **mutates** state by regenerating `.github/guardian/memory/dashboard.html`.\n\n"
+                f"Dashboard has been regenerated. [View it here]({config.pages_url})."
             )
         else:
             reply = (
                 "## Guardian Dashboard\n\n"
-                "Dashboard has been regenerated at "
-                "`.github/guardian/memory/dashboard.html`. Configure `pages_url` "
-                "in `.github/guardian/guardian-config.json` for a direct link."
+                f"**Consequence:** This command **mutates** state by regenerating `.github/guardian/memory/dashboard.html`.\n\n"
+                "Dashboard has been regenerated at `.github/guardian/memory/dashboard.html`."
             )
     except Exception as exc:
         reply = f"Guardian: error regenerating dashboard — {exc}"
@@ -642,7 +684,10 @@ def _handle_status(
     """Handle /status — post a brief health summary."""
     from guardian import chronicle, governance
 
-    lines: list[str] = ["## Guardian Status\n"]
+    lines: list[str] = [
+        "## Guardian Status\n",
+        "**Consequence:** Reports state only; it **does not** mutate files.\n",
+    ]
 
     # Active debt timers.
     try:
@@ -650,12 +695,25 @@ def _handle_status(
         active = buckets.get("active", [])
         approaching = buckets.get("approaching_expiry", [])
         expired = buckets.get("expired", [])
+        
         if expired:
-            lines.append(f"**Expired debt timers:** {len(expired)} (need resolution)")
+            lines.append(f"### 🔴 Expired debt timers ({len(expired)})")
+            for t in expired:
+                lines.append(f"- **PR #{t.pr_number}** ({t.principle_id}): *{t.justification}* (Expired: {t.expires_at.strftime('%Y-%m-%d')})")
+            lines.append("")
+            
         if approaching:
-            lines.append(f"**Approaching expiry:** {len(approaching)}")
+            lines.append(f"### ⚠️ Approaching expiry ({len(approaching)})")
+            for t in approaching:
+                lines.append(f"- **PR #{t.pr_number}** ({t.principle_id}): *{t.justification}* (Expires: {t.expires_at.strftime('%Y-%m-%d')})")
+            lines.append("")
+            
         if active:
-            lines.append(f"**Active debt timers:** {len(active)}")
+            lines.append(f"### 🔵 Active debt timers ({len(active)})")
+            for t in active:
+                lines.append(f"- **PR #{t.pr_number}** ({t.principle_id}): *{t.justification}* (Expires: {t.expires_at.strftime('%Y-%m-%d')})")
+            lines.append("")
+            
         if not active and not approaching and not expired:
             lines.append("**Debt timers:** none active")
     except Exception as exc:
@@ -677,15 +735,17 @@ def _handle_status(
     except Exception as exc:
         lines.append(f"**Last interview:** unavailable ({exc})")
 
+    reply = "\n".join(lines)
     if ctx.pr:
-        post_pr_comment(ctx, "\n".join(lines))
+        post_pr_comment(ctx, reply)
     else:
-        click.echo("\n".join(lines))
+        click.echo(reply)
 
 
 # ---------------------------------------------------------------------------
 # guardian sweep-debt
 # ---------------------------------------------------------------------------
+
 
 @cli.command()
 @click.option(
@@ -720,9 +780,7 @@ def sweep_debt(repo_root: str | None) -> None:
     config = _load_config(store)
 
     for debt in approaching:
-        governance.escalate_debt(
-            store, debt.id, new_level=DebtLevel.REMINDER_75, config=config
-        )
+        governance.escalate_debt(store, debt.id, new_level=DebtLevel.REMINDER_75, config=config)
         click.echo(f"  Reminded (75%) debt {debt.id} (PR #{debt.pr_number}, {debt.principle_id})")
 
     for debt in expired:
@@ -762,6 +820,7 @@ def sweep_debt(repo_root: str | None) -> None:
 # ---------------------------------------------------------------------------
 # guardian init-local
 # ---------------------------------------------------------------------------
+
 
 @cli.command()
 @click.option(
@@ -818,7 +877,9 @@ def init_local(repo_root: str) -> None:
     raw_anti_patterns: list[str] = []
     while True:
         n = len(raw_anti_patterns) + 1
-        value = click.prompt(f"Anti-pattern {n} (or Enter to finish)", default="", show_default=False)
+        value = click.prompt(
+            f"Anti-pattern {n} (or Enter to finish)", default="", show_default=False
+        )
         if not value:
             break
         raw_anti_patterns.append(value)
@@ -856,6 +917,7 @@ def init_local(repo_root: str) -> None:
 # ---------------------------------------------------------------------------
 # guardian preview-dashboard
 # ---------------------------------------------------------------------------
+
 
 @cli.command()
 @click.option(
@@ -896,6 +958,7 @@ def preview_dashboard(output: str, repo_root: str) -> None:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     """Package entry point wired in pyproject.toml."""

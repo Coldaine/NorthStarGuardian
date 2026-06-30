@@ -51,7 +51,7 @@ class DiffParseError(ValueError):
 # Jinja2 environment
 # ---------------------------------------------------------------------------
 
-_TEMPLATE_DIR = Path(__file__).parent / "templates" / "prompts"
+_TEMPLATE_DIR = Path(__file__).parent / "templates"
 _jinja_env = Environment(
     loader=FileSystemLoader(str(_TEMPLATE_DIR)),
     autoescape=False,
@@ -60,6 +60,9 @@ _jinja_env = Environment(
 
 
 def _render(template_name: str, **ctx: Any) -> str:
+    # Use relative path if the prefix is missing
+    if not template_name.startswith("prompts/"):
+        template_name = f"prompts/{template_name}"
     return _jinja_env.get_template(template_name).render(**ctx)
 
 
@@ -313,7 +316,7 @@ def evaluate_alignment(
         If the LLM response cannot be parsed or does not match the schema.
     """
     prompt = _render(
-        "evaluate_alignment.md.j2",
+        "prompts/evaluate_alignment.md.j2",
         north_star=north_star,
         diff=diff,
     )
@@ -330,9 +333,7 @@ def evaluate_alignment(
 
     data = _parse_json_response(raw, "evaluate_alignment")
     if not isinstance(data, list):
-        raise LLMOutputError(
-            f"evaluate_alignment expected a JSON array, got {type(data).__name__}"
-        )
+        raise LLMOutputError(f"evaluate_alignment expected a JSON array, got {type(data).__name__}")
 
     evaluations: list[PrincipleEvaluation] = []
     principle_ids = {p.id for p in north_star.principles}
@@ -354,8 +355,7 @@ def evaluate_alignment(
                 verdict = Verdict(verdict_raw)
             except ValueError as exc:
                 raise LLMOutputError(
-                    f"evaluate_alignment: invalid verdict '{verdict_raw}' "
-                    f"for principle '{pid}'"
+                    f"evaluate_alignment: invalid verdict '{verdict_raw}' for principle '{pid}'"
                 ) from exc
 
         evaluations.append(
@@ -415,7 +415,7 @@ def detect_anti_patterns(
         return []
 
     prompt = _render(
-        "detect_anti_patterns.md.j2",
+        "prompts/detect_anti_patterns.md.j2",
         north_star=north_star,
         diff=diff,
     )
@@ -468,6 +468,7 @@ def detect_anti_patterns(
 def assess_intent(
     pr_meta: dict[str, Any],
     diff: DiffAnalysis,
+    north_star: NorthStar | None = None,
     *,
     client: Any,
     model: str,
@@ -484,6 +485,8 @@ def assess_intent(
         ``commit_messages`` (list[str]), ``author``, ``number``.
     diff:
         DiffAnalysis for context injected into the prompt.
+    north_star:
+        Optional project North Star. If omitted, a placeholder is used.
 
     Returns
     -------
@@ -501,8 +504,8 @@ def assess_intent(
     declared_variances = _parse_variance_tags(body_text)
 
     prompt = _render(
-        "assess_intent.md.j2",
-        north_star=_DUMMY_NORTH_STAR_FOR_INTENT,  # placeholder; real one passed by run_interview
+        "prompts/assess_intent.md.j2",
+        north_star=north_star or _DUMMY_NORTH_STAR_FOR_INTENT,
         pr_meta=pr_meta,
         diff=diff,
     )
@@ -520,60 +523,7 @@ def assess_intent(
 
     data = _parse_json_response(raw, "assess_intent")
     if not isinstance(data, dict):
-        raise LLMOutputError(
-            f"assess_intent expected a JSON object, got {type(data).__name__}"
-        )
-
-    one_line = str(data.get("one_line", ""))
-    paragraph = str(data.get("paragraph", ""))
-
-    if not one_line:
-        raise LLMOutputError("assess_intent: LLM returned empty 'one_line' field")
-
-    return IntentSummary(
-        one_line=one_line,
-        paragraph=paragraph,
-        declared_variances=declared_variances,
-    )
-
-
-def assess_intent_with_north_star(
-    pr_meta: dict[str, Any],
-    diff: DiffAnalysis,
-    north_star: NorthStar,
-    *,
-    client: Any,
-    model: str,
-) -> IntentSummary:
-    """Variant of :func:`assess_intent` that injects the real North Star into
-    the prompt.  Called by :func:`run_interview`; public callers may use either.
-    """
-    body_text = pr_meta.get("body") or ""
-    declared_variances = _parse_variance_tags(body_text)
-
-    prompt = _render(
-        "assess_intent.md.j2",
-        north_star=north_star,
-        pr_meta=pr_meta,
-        diff=diff,
-    )
-
-    raw = _call_llm(
-        client,
-        model=model,
-        system=(
-            "You are the Repository Guardian. Follow the instructions exactly. "
-            "Return only valid JSON with no preamble."
-        ),
-        user=prompt,
-        max_tokens=1024,
-    )
-
-    data = _parse_json_response(raw, "assess_intent")
-    if not isinstance(data, dict):
-        raise LLMOutputError(
-            f"assess_intent expected a JSON object, got {type(data).__name__}"
-        )
+        raise LLMOutputError(f"assess_intent expected a JSON object, got {type(data).__name__}")
 
     one_line = str(data.get("one_line", ""))
     paragraph = str(data.get("paragraph", ""))
@@ -628,7 +578,7 @@ def _parse_variance_tags(text: str) -> list[VarianceTag]:
         # Build justification: strip principle id from front, strip days clause
         justification = body
         if princ_match:
-            justification = re.sub(r"^[\s\u2014\u2013:-]+", "", body[princ_match.end():]).strip()
+            justification = re.sub(r"^[\s\u2014\u2013:-]+", "", body[princ_match.end() :]).strip()
         if days_match:
             # Remove the "N days" fragment from the justification
             justification = justification[: days_match.start()].rstrip(" ,;").strip()
@@ -699,7 +649,7 @@ def run_interview(
     }
 
     # Step 1 — intent
-    intent = assess_intent_with_north_star(
+    intent = assess_intent(
         _merged_meta,
         diff,
         north_star,
@@ -779,8 +729,7 @@ def _draft_chronicle(
     """Ask the LLM to write a single chronicle paragraph for the PR."""
     relevant = [e for e in evaluations if e.relevant]
     eval_summary = "\n".join(
-        f"- [{e.principle_id}] {e.verdict}: {e.reasoning or ''}"
-        for e in relevant
+        f"- [{e.principle_id}] {e.verdict}: {e.reasoning or ''}" for e in relevant
     )
 
     system = (
@@ -824,14 +773,15 @@ def _draft_suggestions(
     raw = _call_llm(
         client,
         model=model,
-        system="You are the Repository Guardian. Suggest improvements.",
+        system="You are the Repository Guardian. Suggest 1-3 improvements in a JSON array of strings.",
         user=prompt,
         max_tokens=256,
     )
-    # Extract lines starting with "- "
-    suggestions = [
-        line.lstrip("- ").strip()
-        for line in raw.splitlines()
-        if line.strip().startswith("- ")
-    ]
-    return suggestions[:3]
+    try:
+        data = _parse_json_response(raw, "suggestions")
+        if isinstance(data, list):
+            return [str(s) for s in data][:3]
+        return []
+    except LLMOutputError:
+        # Fallback to empty list so we don't crash the whole interview
+        return []

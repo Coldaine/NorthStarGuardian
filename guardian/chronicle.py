@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any
 
 from dateutil import parser
-
 from jinja2 import Environment, FileSystemLoader
 
 from guardian.memory import MemoryStore
@@ -223,13 +222,17 @@ def _load_saga_from_store(store: MemoryStore, saga_id: str) -> Saga:
             id=fm["id"],
             name=fm["name"],
             start_date=parser.parse(fm["start_date"]),
-            end_date=parser.parse(fm["end_date"]) if fm.get("end_date") not in (None, "null", "") else None,
+            end_date=(
+                parser.parse(fm["end_date"])
+                if fm.get("end_date") not in (None, "null", "")
+                else None
+            ),
             status=SagaStatus(fm.get("status", "active")),
             pr_numbers=pr_numbers,
             description=body,
         )
     except (KeyError, ValueError, parser.ParserError) as e:
-        raise ValueError(f"Invalid saga data in {saga_id}: {e}")
+        raise ValueError(f"Invalid saga data in {saga_id}: {e}") from e
 
 
 def _load_journal_entry(store: MemoryStore, path: str) -> JournalEntry | None:

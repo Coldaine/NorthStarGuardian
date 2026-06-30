@@ -264,11 +264,7 @@ def _parse_json_response(raw: str, context: str) -> Any:
     """
     # 1. Try to find JSON inside a block first: ```json ... ``` or ``` ... ```
     match = re.search(r"```(?:json)?\s*(.*?)\s*```", raw, re.DOTALL | re.IGNORECASE)
-    if match:
-        text = match.group(1).strip()
-    else:
-        # 2. Fall back to the whole string stripped
-        text = raw.strip()
+    text = match.group(1).strip() if match else raw.strip()
 
     try:
         return json.loads(text)

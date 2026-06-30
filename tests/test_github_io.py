@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from github import GithubException
+
 from guardian.github_io import GitHubContext, get_pr_diff, get_pr_meta, post_pr_comment
 
 
@@ -21,13 +20,13 @@ def test_github_context_from_env_pull_request(tmp_path, mock_github):
     event_path = tmp_path / "event.json"
     event_payload = {
         "pull_request": {"number": 123},
-        "repository": {"full_name": "owner/repo"}
+        "repository": {"full_name": "owner/repo"},
     }
     event_path.write_text(json.dumps(event_payload))
 
     mock_repo = MagicMock()
     mock_github.return_value.get_repo.return_value = mock_repo
-    
+
     env = {
         "GITHUB_TOKEN": "secret",
         "GITHUB_REPOSITORY": "owner/repo",
@@ -53,7 +52,7 @@ def test_github_context_from_env_issue_comment(tmp_path, mock_github):
 
     mock_repo = MagicMock()
     mock_github.return_value.get_repo.return_value = mock_repo
-    
+
     env = {
         "GITHUB_TOKEN": "secret",
         "GITHUB_REPOSITORY": "owner/repo",
@@ -72,9 +71,9 @@ def test_github_context_from_env_issue_comment(tmp_path, mock_github):
 def test_post_pr_comment(mock_github):
     mock_pr = MagicMock()
     ctx = GitHubContext(repo=MagicMock(), event_name="test", event_payload={}, pr=mock_pr)
-    
+
     post_pr_comment(ctx, "Hello world")
-    
+
     mock_pr.create_issue_comment.assert_called_once_with("Hello world")
 
 
@@ -82,14 +81,14 @@ def test_get_pr_diff(mock_github):
     mock_file = MagicMock()
     mock_file.filename = "file.txt"
     mock_file.patch = "@@ -1 +1 @@\n-old\n+new"
-    
+
     mock_pr = MagicMock()
     mock_pr.get_files.return_value = [mock_file]
-    
+
     ctx = GitHubContext(repo=MagicMock(), event_name="test", event_payload={}, pr=mock_pr)
-    
+
     diff = get_pr_diff(ctx)
-    
+
     assert "diff --git a/file.txt b/file.txt" in diff
     assert "+new" in diff
 
@@ -107,9 +106,9 @@ def test_get_pr_meta(mock_github):
     mock_pr.html_url = "http://github.com/PR/123"
     
     ctx = GitHubContext(repo=MagicMock(), event_name="test", event_payload={}, pr=mock_pr)
-    
+
     meta = get_pr_meta(ctx)
-    
+
     assert meta["number"] == 123
     assert meta["author"] == "alice"
     assert meta["base_sha"] == "base"

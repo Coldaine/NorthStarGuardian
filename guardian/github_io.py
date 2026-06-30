@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from github import Github
+from github import Github, GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
@@ -73,7 +73,7 @@ class GitHubContext:
             if issue_number is not None:
                 try:
                     pr = repo.get_pull(int(issue_number))
-                except Exception:
+                except GithubException:
                     pr = None  # Could be an issue comment, not a PR comment.
 
         return cls(

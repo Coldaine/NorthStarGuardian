@@ -218,6 +218,8 @@ def read_repo_north_star_markdown(
     branch policy rather than a PR's modified policy.
     """
     if ref:
+        if ref.startswith("-"):
+            raise ValueError(f"Invalid git ref: '{ref}'")
         result = subprocess.run(
             ["git", "show", f"{ref}:{path}"],
             cwd=str(repo_root),

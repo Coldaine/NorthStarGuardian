@@ -43,8 +43,8 @@ def _load_config(store: MemoryStore) -> GuardianConfig:
         try:
             raw = store.read_json(_CONFIG_PATH)
             return GuardianConfig(**raw)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise click.ClickException(f"Failed to load config '{_CONFIG_PATH}': {exc}") from exc
     return GuardianConfig()
 
 

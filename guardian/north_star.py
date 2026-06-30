@@ -220,6 +220,8 @@ def read_repo_north_star_markdown(
     if ref:
         if ref.startswith("-"):
             raise ValueError(f"Invalid git ref: '{ref}'")
+        if path.startswith("-"):
+            raise ValueError(f"Invalid path: '{path}'")
         result = subprocess.run(
             ["git", "show", f"{ref}:{path}"],
             cwd=str(repo_root),

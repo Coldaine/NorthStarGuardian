@@ -622,8 +622,8 @@ def _handle_status(
             lines.append(f"**Active debt timers:** {len(active)}")
         if not active and not approaching and not expired:
             lines.append("**Debt timers:** none active")
-    except Exception:
-        lines.append("**Debt timers:** unavailable")
+    except Exception as exc:
+        lines.append(f"**Debt timers:** unavailable ({exc})")
 
     lines.append("")
 
@@ -638,8 +638,8 @@ def _handle_status(
             )
         else:
             lines.append("**Last interview:** none recorded")
-    except Exception:
-        lines.append("**Last interview:** unavailable")
+    except Exception as exc:
+        lines.append(f"**Last interview:** unavailable ({exc})")
 
     if ctx.pr:
         post_pr_comment(ctx, "\n".join(lines))

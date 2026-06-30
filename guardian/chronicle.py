@@ -15,6 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from dateutil import parser
+
 from jinja2 import Environment, FileSystemLoader
 
 from guardian.memory import MemoryStore
@@ -185,13 +187,11 @@ def _saga_to_frontmatter(saga: Saga) -> str:
     return "\n".join(lines)
 
 
-def _load_saga_from_store(store: MemoryStore, saga_id: str) -> Saga:
-    """Read and parse a saga file from the store."""
-    raw = store.read(f"memory/sagas/{saga_id}.md")
-    # Parse YAML frontmatter between --- delimiters
+def _parse_yaml_frontmatter(raw: str) -> tuple[dict[str, Any], str] | None:
+    """Extract YAML frontmatter and body from a Markdown string."""
     parts = raw.split("---", 2)
     if len(parts) < 3:
-        raise ValueError(f"Malformed saga file for id={saga_id}")
+        return None
     fm_text = parts[1]
     body = parts[2].strip()
 
@@ -200,6 +200,16 @@ def _load_saga_from_store(store: MemoryStore, saga_id: str) -> Saga:
         if ":" in line:
             key, _, val = line.partition(":")
             fm[key.strip()] = val.strip()
+    return fm, body
+
+
+def _load_saga_from_store(store: MemoryStore, saga_id: str) -> Saga:
+    """Read and parse a saga file from the store."""
+    raw = store.read(f"memory/sagas/{saga_id}.md")
+    res = _parse_yaml_frontmatter(raw)
+    if not res:
+        raise ValueError(f"Malformed saga file for id={saga_id}")
+    fm, body = res
 
     # pr_numbers is stored as a JSON array string
     pr_raw = fm.get("pr_numbers", "[]")
@@ -208,15 +218,18 @@ def _load_saga_from_store(store: MemoryStore, saga_id: str) -> Saga:
     except json.JSONDecodeError:
         pr_numbers = []
 
-    return Saga(
-        id=fm["id"],
-        name=fm["name"],
-        start_date=datetime.fromisoformat(fm["start_date"]),
-        end_date=datetime.fromisoformat(fm["end_date"]) if fm.get("end_date") not in (None, "null", "") else None,
-        status=SagaStatus(fm.get("status", "active")),
-        pr_numbers=pr_numbers,
-        description=body,
-    )
+    try:
+        return Saga(
+            id=fm["id"],
+            name=fm["name"],
+            start_date=parser.parse(fm["start_date"]),
+            end_date=parser.parse(fm["end_date"]) if fm.get("end_date") not in (None, "null", "") else None,
+            status=SagaStatus(fm.get("status", "active")),
+            pr_numbers=pr_numbers,
+            description=body,
+        )
+    except (KeyError, ValueError, parser.ParserError) as e:
+        raise ValueError(f"Invalid saga data in {saga_id}: {e}")
 
 
 def _load_journal_entry(store: MemoryStore, path: str) -> JournalEntry | None:
@@ -226,25 +239,20 @@ def _load_journal_entry(store: MemoryStore, path: str) -> JournalEntry | None:
     except FileNotFoundError:
         return None
 
-    parts = raw.split("---", 2)
-    if len(parts) < 3:
+    res = _parse_yaml_frontmatter(raw)
+    if not res:
         return None
-
-    fm: dict[str, Any] = {}
-    for line in parts[1].strip().splitlines():
-        if ":" in line:
-            key, _, val = line.partition(":")
-            fm[key.strip()] = val.strip()
+    fm, body = res
 
     try:
         return JournalEntry(
             pr_number=int(fm["pr_number"]),
-            timestamp=datetime.fromisoformat(fm["timestamp"].replace(" UTC", "+00:00")),
+            timestamp=parser.parse(fm["timestamp"]),
             saga_id=fm.get("saga_id") or None,
             verdict=Verdict(fm["verdict"]),
-            body_markdown=parts[2].strip(),
+            body_markdown=body,
         )
-    except (KeyError, ValueError):
+    except (KeyError, ValueError, parser.ParserError):
         return None
 
 
@@ -304,9 +312,14 @@ def assign_saga(
     )
     response_text = message.choices[0].message.content.strip()
 
-    # Parse LLM response
-    if response_text.startswith("MATCH:"):
-        saga_id = response_text.removeprefix("MATCH:").strip()
+    # Parse LLM response - support cases where LLM includes conversational filler
+    # Match pattern: Any line starting with "MATCH:" followed by ID
+    # Use re.IGNORECASE and robust whitespace handling
+    match_m = re.search(r"^\s*MATCH\s*:\s*(\S+)", response_text, re.MULTILINE | re.IGNORECASE)
+    if match_m:
+        saga_id = match_m.group(1).strip()
+        # Clean potential trailing punctuation like dots or quotes
+        saga_id = re.sub(r"['\"\.]+$", "", saga_id)
         # Find the saga in existing list
         for s in active_sagas:
             if s.id == saga_id:
@@ -316,12 +329,14 @@ def assign_saga(
             return _load_saga_from_store(store, saga_id)
         except (FileNotFoundError, ValueError):
             pass
-        # If we couldn't find it, fall through to create a new saga
 
     # CREATE path (or fallback from failed MATCH)
     new_name = "New Saga"
-    if response_text.startswith("CREATE:"):
-        new_name = response_text.removeprefix("CREATE:").strip()
+    create_m = re.search(r"^\s*CREATE\s*:\s*(.*)", response_text, re.MULTILINE | re.IGNORECASE)
+    if create_m:
+        new_name = create_m.group(1).strip()
+        # Clean potential trailing punctuation
+        new_name = re.sub(r"['\"\.]+$", "", new_name)
 
     # Build unique slug
     existing_ids = {s.id for s in existing_sagas}

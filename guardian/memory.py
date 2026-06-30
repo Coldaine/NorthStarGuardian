@@ -9,6 +9,8 @@ must commit the changed checkout through their usual repo workflow.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -76,15 +78,31 @@ class MemoryStore:
         return self._resolve(path).exists()
 
     def write(self, path: str, content: str, message: str = "") -> None:
-        """Write *content* to *path* in ``.github/guardian``.
+        """Write *content* to *path* in ``.github/guardian`` atomically.
 
         ``message`` is accepted for API compatibility with the old batched
         storage interface; repo-native writes do not commit automatically.
         """
         _ = message
         full = self._resolve(path)
-        full.parent.mkdir(parents=True, exist_ok=True)
-        full.write_text(content, encoding="utf-8")  # NOSONAR - confined by _resolve().
+        parent = full.parent
+        parent.mkdir(parents=True, exist_ok=True)
+
+        # Atomic write-replace pattern
+        fd, temp_path = tempfile.mkstemp(
+            dir=parent, prefix=f"{full.name}.", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+                f.flush()
+                if os.name == "posix":
+                    os.fsync(f.fileno())
+            os.replace(temp_path, full)
+        except Exception as exc:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise MemoryError(f"Failed to write to {path}: {exc}") from exc
 
     def write_json(self, path: str, obj: Any, message: str = "") -> None:
         """Serialise *obj* as pretty-printed JSON and write it."""

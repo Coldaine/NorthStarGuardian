@@ -43,6 +43,10 @@ class LLMOutputError(ValueError):
     """
 
 
+class DiffParseError(ValueError):
+    """Raised when a unified diff cannot be parsed structurally."""
+
+
 # ---------------------------------------------------------------------------
 # Jinja2 environment
 # ---------------------------------------------------------------------------
@@ -119,7 +123,10 @@ def analyze_diff(unified_diff: str, pr_meta: dict[str, Any]) -> DiffAnalysis:
         Populated with per-file stats, new imports, and new_packages if any
         dependency file was touched.
     """
-    patch = unidiff.PatchSet.from_string(unified_diff)
+    try:
+        patch = unidiff.PatchSet.from_string(unified_diff)
+    except Exception as exc:
+        raise DiffParseError(f"Failed to parse unified diff: {exc}") from exc
 
     file_changes: list[FileChange] = []
     new_packages: list[str] = []
@@ -250,18 +257,24 @@ def _call_llm(
 def _parse_json_response(raw: str, context: str) -> Any:
     """Strip optional markdown fences and parse JSON from *raw*.
 
+    Supports extracting JSON from within markdown code blocks even if the
+    LLM included preamble or notes.
+
     Raises LLMOutputError with *context* if parsing fails.
     """
-    text = raw.strip()
-    # Strip ```json ... ``` or ``` ... ``` fences if present
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-    text = text.strip()
+    # 1. Try to find JSON inside a block first: ```json ... ``` or ``` ... ```
+    match = re.search(r"```(?:json)?\s*(.*?)\s*```", raw, re.DOTALL | re.IGNORECASE)
+    if match:
+        text = match.group(1).strip()
+    else:
+        # 2. Fall back to the whole string stripped
+        text = raw.strip()
+
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
         raise LLMOutputError(
-            f"JSON parse failure in {context}: {exc}\nRaw output:\n{raw[:500]}"
+            f"JSON parse failure in {context}: {exc}\nRaw output snippet:\n{raw[:1000]}"
         ) from exc
 
 
